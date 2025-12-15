@@ -390,6 +390,7 @@ export function addProcessItemToGroup(parent, process) {
       ${process.running ? `<button class="btn-stop" data-stop="${process.id}">停止训练</button>` : ''}
       ${showDelete ? `<button class="btn-delete" data-del="${process.id}">删除</button>` : ''}
     </div>
+    ${showSwanlab ? `<div class="swan-wrap">${process.swanlab_url ? `<a class="swan-link" target="_blank" href="${process.swanlab_url}">查看 SwanLab 实时训练</a>` : '<span class="swan-link pending">等待 SwanLab 链接...</span>'}</div>` : ''}
     <div id="logs-${process.id}" class="logs-container hidden"></div>
   `;
   parent.appendChild(item);
@@ -471,6 +472,23 @@ export function updateProcessItem(item, process) {
   const btnContainer = item.querySelector('div:nth-child(2)');
   const existingSwan = item.querySelector('.btn-swanlab');
   const showSwan = process.train_monitor !== 'none';
+  const swanWrap = item.querySelector('.swan-wrap');
+  if (showSwan) {
+    if (swanWrap) {
+      if (process.swanlab_url) {
+        swanWrap.innerHTML = `<a class="swan-link" target="_blank" href="${process.swanlab_url}">查看 SwanLab 实时训练</a>`;
+      } else {
+        swanWrap.innerHTML = '<span class="swan-link pending">等待 SwanLab 链接...</span>';
+      }
+    } else {
+      const wrap = el('div', { class: 'swan-wrap' });
+      wrap.innerHTML = process.swanlab_url ? `<a class="swan-link" target="_blank" href="${process.swanlab_url}">查看 SwanLab 实时训练</a>` : '<span class="swan-link pending">等待 SwanLab 链接...</span>';
+      const logs = item.querySelector('.logs-container');
+      if (logs) logs.parentNode.insertBefore(wrap, logs);
+    }
+  } else if (swanWrap) {
+    swanWrap.remove();
+  }
   if (showSwan && !existingSwan && btnContainer) {
     const b = el('button', { class: 'btn-swanlab' });
     b.textContent = 'SwanLab';
@@ -631,4 +649,3 @@ function isValidUrl(url) {
     return u.startsWith('http://') || u.startsWith('https://');
   }
 }
-

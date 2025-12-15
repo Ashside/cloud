@@ -3,6 +3,7 @@ import sys
 
 __package__ = "trainer"
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from trainer.env_loader import load_env, env_or_default, env_bool
 
 import argparse
 import time
@@ -19,6 +20,7 @@ from model.model_lora import save_lora, apply_lora
 from trainer.trainer_utils import get_lr, Logger, is_main_process, lm_checkpoint, init_distributed_mode, setup_seed, init_model, SkipBatchSampler
 
 warnings.filterwarnings('ignore')
+load_env()
 
 
 def train_epoch(epoch, loader, iters, lora_params, start_step=0, wandb=None):
@@ -76,27 +78,27 @@ def train_epoch(epoch, loader, iters, lora_params, start_step=0, wandb=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MiniMind LoRA Fine-tuning")
-    parser.add_argument("--save_dir", type=str, default="../out/lora", help="模型保存目录")
-    parser.add_argument("--lora_name", type=str, default="lora_identity", help="LoRA权重名称(如lora_identity/lora_medical等)")
-    parser.add_argument("--epochs", type=int, default=50, help="训练轮数")
-    parser.add_argument("--batch_size", type=int, default=32, help="batch size")
-    parser.add_argument("--learning_rate", type=float, default=1e-4, help="初始学习率")
-    parser.add_argument("--device", type=str, default="cuda:0" if torch.cuda.is_available() else "cpu", help="训练设备")
-    parser.add_argument("--dtype", type=str, default="bfloat16", help="混合精度类型")
-    parser.add_argument("--num_workers", type=int, default=1, help="数据加载线程数")
-    parser.add_argument("--accumulation_steps", type=int, default=1, help="梯度累积步数")
-    parser.add_argument("--grad_clip", type=float, default=1.0, help="梯度裁剪阈值")
-    parser.add_argument("--log_interval", type=int, default=10, help="日志打印间隔")
-    parser.add_argument("--save_interval", type=int, default=1, help="模型保存间隔")
-    parser.add_argument('--hidden_size', default=512, type=int, help="隐藏层维度")
-    parser.add_argument('--num_hidden_layers', default=8, type=int, help="隐藏层数量")
-    parser.add_argument('--max_seq_len', default=512, type=int, help="训练的最大截断长度")
-    parser.add_argument('--use_moe', default=0, type=int, choices=[0, 1], help="是否使用MoE架构（0=否，1=是）")
-    parser.add_argument("--data_path", type=str, default="../dataset/lora_identity.jsonl", help="LoRA训练数据路径")
-    parser.add_argument('--from_weight', default='full_sft', type=str, help="基于哪个权重训练，默认full_sft")
-    parser.add_argument('--from_resume', default=0, type=int, choices=[0, 1], help="是否自动检测&续训（0=否，1=是）")
-    parser.add_argument("--use_wandb", action="store_true", help="是否使用wandb")
-    parser.add_argument("--wandb_project", type=str, default="MiniMind-LoRA", help="wandb项目名")
+    parser.add_argument("--save_dir", type=str, default=env_or_default("LORA_SAVE_DIR", "../out/lora"), help="模型保存目录")
+    parser.add_argument("--lora_name", type=str, default=env_or_default("LORA_NAME", "lora_identity"), help="LoRA权重名称(如lora_identity/lora_medical等)")
+    parser.add_argument("--epochs", type=int, default=env_or_default("LORA_EPOCHS", 50, int), help="训练轮数")
+    parser.add_argument("--batch_size", type=int, default=env_or_default("LORA_BATCH_SIZE", 32, int), help="batch size")
+    parser.add_argument("--learning_rate", type=float, default=env_or_default("LORA_LEARNING_RATE", 1e-4, float), help="初始学习率")
+    parser.add_argument("--device", type=str, default=env_or_default("LORA_DEVICE", "cuda:0" if torch.cuda.is_available() else "cpu"), help="训练设备")
+    parser.add_argument("--dtype", type=str, default=env_or_default("LORA_DTYPE", "bfloat16"), help="混合精度类型")
+    parser.add_argument("--num_workers", type=int, default=env_or_default("LORA_NUM_WORKERS", 1, int), help="数据加载线程数")
+    parser.add_argument("--accumulation_steps", type=int, default=env_or_default("LORA_ACCUMULATION_STEPS", 1, int), help="梯度累积步数")
+    parser.add_argument("--grad_clip", type=float, default=env_or_default("LORA_GRAD_CLIP", 1.0, float), help="梯度裁剪阈值")
+    parser.add_argument("--log_interval", type=int, default=env_or_default("LORA_LOG_INTERVAL", 10, int), help="日志打印间隔")
+    parser.add_argument("--save_interval", type=int, default=env_or_default("LORA_SAVE_INTERVAL", 1, int), help="模型保存间隔")
+    parser.add_argument('--hidden_size', default=env_or_default("LORA_HIDDEN_SIZE", 512, int), type=int, help="隐藏层维度")
+    parser.add_argument('--num_hidden_layers', default=env_or_default("LORA_NUM_HIDDEN_LAYERS", 8, int), type=int, help="隐藏层数量")
+    parser.add_argument('--max_seq_len', default=env_or_default("LORA_MAX_SEQ_LEN", 512, int), type=int, help="训练的最大截断长度")
+    parser.add_argument('--use_moe', default=env_or_default("LORA_USE_MOE", 0, int), type=int, choices=[0, 1], help="是否使用MoE架构（0=否，1=是）")
+    parser.add_argument("--data_path", type=str, default=env_or_default("LORA_DATA_PATH", "../dataset/lora_identity.jsonl"), help="LoRA训练数据路径")
+    parser.add_argument('--from_weight', default=env_or_default("LORA_FROM_WEIGHT", 'full_sft'), type=str, help="基于哪个权重训练，默认full_sft")
+    parser.add_argument('--from_resume', default=env_or_default("LORA_FROM_RESUME", 0, int), type=int, choices=[0, 1], help="是否自动检测&续训（0=否，1=是）")
+    parser.add_argument("--use_wandb", action="store_true", default=env_bool("LORA_USE_WANDB", False), help="是否使用wandb")
+    parser.add_argument("--wandb_project", type=str, default=env_or_default("LORA_WANDB_PROJECT", "MiniMind-LoRA"), help="wandb项目名")
     args = parser.parse_args()
 
     # ========== 1. 初始化环境和随机种子 ==========

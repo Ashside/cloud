@@ -73,3 +73,38 @@ export function deleteLogFile(filename) {
   }).then((r) => r.json());
 }
 
+export function getDefaults() {
+  return fetchWithTimeoutAndRetry('/api/defaults', {
+    headers: { 'Cache-Control': 'no-cache' },
+  }).then((r) => r.json());
+}
+
+export function getDatasetFiles(params = {}) {
+  const search = new URLSearchParams(params).toString();
+  const url = `/api/datasets/files${search ? `?${search}` : ''}`;
+  return fetchWithTimeoutAndRetry(url).then((r) => r.json());
+}
+
+export function downloadDataset(payload) {
+  return fetchWithTimeoutAndRetry('/api/datasets/download', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+    body: JSON.stringify(payload),
+  }).then((r) => r.json());
+}
+
+export function downloadWeights(payload) {
+  return fetchWithTimeoutAndRetry('/api/weights/download', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+    body: JSON.stringify(payload),
+  }).then((r) => r.json());
+}
+
+export function uploadWeights(payload) {
+  return fetchWithTimeoutAndRetry('/api/weights/upload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+    body: JSON.stringify(payload),
+  }).then((r) => r.json());
+}

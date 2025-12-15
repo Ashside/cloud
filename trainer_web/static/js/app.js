@@ -1,5 +1,6 @@
 import { openTab as _openTab } from './ui/tabs.js';
 import { initTrainForm } from './train/form.js';
+import { initResourceTools } from './resources/tools.js';
 import { startProcessPolling, stopProcessPolling, loadProcesses } from './processes/list.js';
 import { loadLogFiles } from './logfiles/list.js';
 import { refreshLog } from './processes/logs.js';
@@ -34,25 +35,20 @@ let selectedFilePath = null;
 let currentSelectionMode = 'auto'; // 'file', 'folder', or 'auto'
 
 function openRemoteFileBrowser(inputId) {
-  console.log('openRemoteFileBrowser called with:', inputId);
   currentFileBrowserTarget = inputId;
   
   // 根据输入框ID确定选择模式
   if (inputId === 'data_path') {
     currentSelectionMode = 'file'; // 数据路径需要文件选择
-    console.log('Mode set to: FILE selection');
-  } else if (inputId === 'save_dir' || inputId.includes('reward_model_path')) {
+  } else if (inputId === 'save_dir' || inputId === 'dataset_dir' || inputId === 'download_target_dir' || inputId === 'local_weight_path' || inputId.includes('reward_model_path')) {
     currentSelectionMode = 'folder'; // 保存目录和奖励模型路径需要文件夹选择
-    console.log('Mode set to: FOLDER selection');
   } else {
     currentSelectionMode = 'auto'; // 自动模式
-    console.log('Mode set to: AUTO selection');
   }
   
   const modal = document.getElementById('file-browser-modal');
   if (modal) {
     modal.classList.remove('hidden');
-    console.log('Modal opened successfully');
   } else {
     console.error('Modal element not found!');
     return;
@@ -63,7 +59,6 @@ function openRemoteFileBrowser(inputId) {
   const selectedPathInput = document.getElementById('selected-path');
   if (selectedPathInput) {
     selectedPathInput.value = '';
-    console.log('Selected path input cleared');
   }
   
   // 加载初始路径
@@ -354,9 +349,10 @@ window.refreshLogs = loadLogFiles;
 window.refreshLog = refreshLog;
 
 window.addEventListener('load', () => {
-  initTrainForm();
-  // 不再立即开始轮询，而是等待用户切换到进程标签页
-  // startProcessPolling(); // 移动到钩子函数中
-  loadProcesses(); // 仍然加载初始进程数据
+  initTrainForm()
+    .then((ctx) => {
+      initResourceTools(ctx?.resourceDefaults);
+    })
+    .catch(() => {});
+  loadProcesses();
 });
-

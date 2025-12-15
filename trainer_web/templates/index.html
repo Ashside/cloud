@@ -23,262 +23,348 @@
     
     <div id="train" class="tab-content">
         <div class="form-container">
-            <h2 class="section-title">选择训练类型并配置参数</h2>
+            <div class="section-header">
+                <h2 class="section-title">配置训练</h2>
+                <div class="pane-switch">
+                    <button type="button" class="pane-tab active" data-pane="parameters" onclick="switchTrainPane('parameters')">参数</button>
+                    <button type="button" class="pane-tab" data-pane="settings" onclick="switchTrainPane('settings')">设置</button>
+                </div>
+            </div>
+
+            <div class="type-grid" id="train-type-grid">
+                <button type="button" class="type-card active" data-type="pretrain">🔤 预训练</button>
+                <button type="button" class="type-card" data-type="sft">🎯 全量 SFT</button>
+                <button type="button" class="type-card" data-type="lora">⚡ LoRA SFT</button>
+                <button type="button" class="type-card" data-type="dpo">🧠 DPO</button>
+                <button type="button" class="type-card" data-type="ppo">🚀 PPO</button>
+                <button type="button" class="type-card" data-type="grpo">💡 GRPO</button>
+                <button type="button" class="type-card" data-type="spo">🔍 SPO</button>
+            </div>
+
             <form id="train-form" method="post" action="/train">
-                <!-- 基础训练参数 -->
-                <div class="parameter-card">
-                    <h3 class="card-title">基础训练参数</h3>
-                    <div class="parameter-content">
-                        <div class="form-group">
-                    <label for="train_type">训练类型：</label>
-                    <select id="train_type" name="train_type" required>
-                        <option value="pretrain">🔤 Pretrain</option>
-                        <option value="sft">🎯 SFT - Full</option>
-                        <option value="lora">⚡ SFT - Lora</option>
-                        <option value="dpo">🧠 RL - DPO</option>
-                        <option value="ppo">🚀 RL - PPO</option>
-                        <option value="grpo">💡 RL - GRPO</option>
-                        <option value="spo">🔍 RL - SPO</option>
-                    </select>
-                </div>
-                        <div class="form-group">
-                            <label for="epochs">训练轮数：</label>
-                            <input type="number" id="epochs" name="epochs" min="1" value="10" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="batch_size">Batch Size：</label>
-                            <input type="number" id="batch_size" name="batch_size" min="1" value="32" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="learning_rate">学习率：</label>
-                            <input type="text" id="learning_rate" name="learning_rate" value="5e-4" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="log_interval">日志打印间隔：</label>
-                            <input type="number" id="log_interval" name="log_interval" min="1" value="100" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="data_path">数据路径：</label>
-                            <div class="input-with-picker">
-                                <input type="text" id="data_path" name="data_path" value="./dataset" required>
-                                <button type="button" class="btn-picker" onclick="selectFolder('data_path')" title="选择文件夹">
-                                    📁
-                                </button>
+                <input type="hidden" id="train_type" name="train_type" value="pretrain">
+
+                <div id="pane-parameters" class="train-pane">
+                    <div class="parameter-card">
+                        <h3 class="card-title">基础训练参数</h3>
+                        <div class="parameter-content">
+                            <div class="form-group">
+                                <label for="epochs">训练轮数：</label>
+                                <input type="number" id="epochs" name="epochs" min="1" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="batch_size">Batch Size：</label>
+                                <input type="number" id="batch_size" name="batch_size" min="1" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="learning_rate">学习率：</label>
+                                <input type="text" id="learning_rate" name="learning_rate" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="log_interval">日志打印间隔：</label>
+                                <input type="number" id="log_interval" name="log_interval" min="1" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="data_path">数据路径：</label>
+                                <div class="input-with-picker">
+                                    <input type="text" id="data_path" name="data_path" required>
+                                    <button type="button" class="btn-picker" onclick="selectFolder('data_path')" title="选择文件或目录">
+                                        📁
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-                
-                <!-- 强化学习参数 -->
-                <div class="parameter-card dpo" style="display: none;">
-                    <h3 class="card-title">强化学习参数 (DPO)</h3>
-                    <div class="parameter-content">
-                        <div class="form-group">
-                            <label for="beta">DPO Beta 参数：</label>
-                            <input type="text" id="beta" name="beta" placeholder="0.1">
+
+                    <div class="parameter-card">
+                        <h3 class="card-title">模型结构参数</h3>
+                        <div class="parameter-content two-col">
+                            <div class="form-group">
+                                <label for="hidden_size">隐藏层维度：</label>
+                                <input type="number" id="hidden_size" name="hidden_size" min="128" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="num_hidden_layers">隐藏层数量：</label>
+                                <input type="number" id="num_hidden_layers" name="num_hidden_layers" min="1" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="max_seq_len">最大序列长度：</label>
+                                <input type="number" id="max_seq_len" name="max_seq_len" min="64" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="use_moe">是否使用MoE架构：</label>
+                                <select id="use_moe" name="use_moe">
+                                    <option value="0">❌ 否</option>
+                                    <option value="1">✅ 是</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
-                </div>
-                
-                <!-- PPO强化学习参数 -->
-                <div class="parameter-card ppo" style="display: none;">
-                    <h3 class="card-title">强化学习参数 (PPO)</h3>
-                    <div class="parameter-content">
-                        <div class="form-group">
-                            <label for="clip_epsilon">PPO剪切系数：</label>
-                            <input type="text" id="clip_epsilon" name="clip_epsilon" placeholder="0.2">
+
+                    <div class="grid-two">
+                        <div class="parameter-card dpo rl-card" data-for="dpo">
+                            <h3 class="card-title">强化学习参数 (DPO)</h3>
+                            <div class="parameter-content">
+                                <div class="form-group">
+                                    <label for="beta">DPO Beta 参数：</label>
+                                    <input type="text" id="beta" name="beta" placeholder="0.1">
+                                </div>
+                            </div>
                         </div>
-                        <div class="form-group">
-                            <label for="vf_coef">价值函数系数：</label>
-                            <input type="text" id="vf_coef" name="vf_coef" placeholder="0.1">
+
+                        <div class="parameter-card ppo rl-card" data-for="ppo">
+                            <h3 class="card-title">强化学习参数 (PPO)</h3>
+                            <div class="parameter-content">
+                                <div class="form-group">
+                                    <label for="clip_epsilon">PPO剪切系数：</label>
+                                    <input type="text" id="clip_epsilon" name="clip_epsilon" placeholder="0.1">
+                                </div>
+                                <div class="form-group">
+                                    <label for="vf_coef">价值函数系数：</label>
+                                    <input type="text" id="vf_coef" name="vf_coef" placeholder="0.5">
+                                </div>
+                                <div class="form-group">
+                                    <label for="kl_coef">KL散度惩罚系数：</label>
+                                    <input type="text" id="kl_coef" name="kl_coef" placeholder="0.02">
+                                </div>
+                                <div class="form-group">
+                                    <label for="reasoning">是否使用Reasoning模式：</label>
+                                    <select id="reasoning" name="reasoning">
+                                        <option value="0">否</option>
+                                        <option value="1">是</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="update_old_actor_freq">更新旧Actor频率：</label>
+                                    <input type="number" id="update_old_actor_freq" name="update_old_actor_freq" min="1">
+                                </div>
+                                <div class="form-group">
+                                    <label for="reward_model_path">奖励模型路径：</label>
+                                    <div class="input-with-picker">
+                                        <input type="text" id="reward_model_path" name="reward_model_path">
+                                        <button type="button" class="btn-picker" onclick="selectFolder('reward_model_path')" title="选择文件夹">
+                                            📁
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="form-group">
-                            <label for="kl_coef">KL散度惩罚系数：</label>
-                            <input type="text" id="kl_coef" name="kl_coef" placeholder="0.01">
+
+                        <div class="parameter-card grpo rl-card" data-for="grpo">
+                            <h3 class="card-title">强化学习参数 (GRPO)</h3>
+                            <div class="parameter-content">
+                                <div class="form-group">
+                                    <label for="num_generations">每个prompt生成样本数：</label>
+                                    <input type="number" id="num_generations" name="num_generations" min="1">
+                                </div>
+                                <div class="form-group">
+                                    <label for="beta_grpo">GRPO KL惩罚系数：</label>
+                                    <input type="text" id="beta_grpo" name="beta" placeholder="0.02">
+                                </div>
+                                <div class="form-group">
+                                    <label for="reasoning_grpo">是否使用Reasoning模式：</label>
+                                    <select id="reasoning_grpo" name="reasoning">
+                                        <option value="0">否</option>
+                                        <option value="1">是</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="reward_model_path_grpo">奖励模型路径：</label>
+                                    <div class="input-with-picker">
+                                        <input type="text" id="reward_model_path_grpo" name="reward_model_path">
+                                        <button type="button" class="btn-picker" onclick="selectFolder('reward_model_path_grpo')" title="选择文件夹">
+                                            📁
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="form-group">
-                            <label for="reasoning">是否使用Reasoning模式：</label>
-                            <select id="reasoning" name="reasoning">
-                                <option value="0">否</option>
-                                <option value="1">是</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="update_old_actor_freq">更新旧Actor频率：</label>
-                            <input type="number" id="update_old_actor_freq" name="update_old_actor_freq" placeholder="10" min="1">
-                        </div>
-                        <div class="form-group">
-                            <label for="reward_model_path">奖励模型路径：</label>
-                            <div class="input-with-picker">
-                                <input type="text" id="reward_model_path" name="reward_model_path" placeholder="path/to/reward/model">
-                                <button type="button" class="btn-picker" onclick="selectFolder('reward_model_path')" title="选择文件夹">
-                                    📁
-                                </button>
+
+                        <div class="parameter-card spo rl-card" data-for="spo">
+                            <h3 class="card-title">强化学习参数 (SPO)</h3>
+                            <div class="parameter-content">
+                                <div class="form-group">
+                                    <label for="beta_spo">SPO KL惩罚系数：</label>
+                                    <input type="text" id="beta_spo" name="beta" placeholder="0.02">
+                                </div>
+                                <div class="form-group">
+                                    <label for="reasoning_spo">是否使用Reasoning模式：</label>
+                                    <select id="reasoning_spo" name="reasoning">
+                                        <option value="0">否</option>
+                                        <option value="1">是</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="reward_model_path_spo">奖励模型路径：</label>
+                                    <div class="input-with-picker">
+                                        <input type="text" id="reward_model_path_spo" name="reward_model_path">
+                                        <button type="button" class="btn-picker" onclick="selectFolder('reward_model_path_spo')" title="选择文件夹">
+                                            📁
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- GRPO强化学习参数 -->
-                <div class="parameter-card grpo" style="display: none;">
-                    <h3 class="card-title">强化学习参数 (GRPO)</h3>
-                    <div class="parameter-content">
-                        <div class="form-group">
-                            <label for="beta_grpo">GRPO KL惩罚系数：</label>
-                            <input type="text" id="beta_grpo" name="beta" placeholder="0.02">
+                <div id="pane-settings" class="train-pane hidden">
+                    <div class="grid-two">
+                        <div class="parameter-card">
+                            <h3 class="card-title">模型保存与恢复</h3>
+                            <div class="parameter-content">
+                                <div class="form-group">
+                                    <label for="save_dir">模型保存目录：</label>
+                                    <div class="input-with-picker">
+                                        <input type="text" id="save_dir" name="save_dir" required>
+                                        <button type="button" class="btn-picker" onclick="selectFolder('save_dir')" title="选择文件夹">
+                                            📁
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="save_interval">模型保存间隔：</label>
+                                    <input type="number" id="save_interval" name="save_interval" min="1" required>
+                                </div>
+                                <div class="form-group pretrain-sft">
+                                    <label for="save_weight">保存权重前缀名：</label>
+                                    <input type="text" id="save_weight" name="save_weight">
+                                </div>
+                                <div class="form-group lora">
+                                    <label for="lora_name">LoRA权重名称：</label>
+                                    <input type="text" id="lora_name" name="lora_name">
+                                </div>
+                                <div class="form-group from-weight">
+                                    <label for="from_weight">基于哪个权重训练：</label>
+                                    <input type="text" id="from_weight" name="from_weight">
+                                </div>
+                                <div class="form-group">
+                                    <div class="checkbox-group">
+                                        <input type="checkbox" id="from_resume" name="from_resume" value="1">
+                                        <label for="from_resume">是否自动检测&续训</label>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="form-group">
-                            <label for="num_generations">每个prompt生成样本数：</label>
-                            <input type="number" id="num_generations" name="num_generations" placeholder="8" min="1">
+
+                        <div class="parameter-card">
+                            <h3 class="card-title">训练运行设置</h3>
+                            <div class="parameter-content">
+                                <div class="form-group">
+                                    <label for="training_mode">训练方式：</label>
+                                    <select id="training_mode" name="training_mode" required>
+                                        <option value="single_gpu">🎮 单卡训练</option>
+                                        <option value="multi_gpu">🚀 多卡训练</option>
+                                        <option value="cpu">💻 CPU训练</option>
+                                    </select>
+                                </div>
+                                <div class="form-group" id="single-gpu-selection">
+                                    <label for="device">GPU序号：</label>
+                                    <input type="number" id="device" name="device" min="0" max="{{ gpu_count|default(1) - 1 }}" value="0" required>
+                                </div>
+                                <div class="form-group" id="multi-gpu-selection" style="display: none;">
+                                    <label for="gpu_num">多卡并行数：</label>
+                                    <div class="input-with-picker">
+                                        <input type="number" id="gpu_num" name="gpu_num" min="1" max="{{ gpu_count|default(1) }}" value="{{ gpu_count|default(1) }}" required>
+                                        <span class="hint-text">(可用GPU数量: {{ gpu_count|default(0) }})</span>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="train_monitor">训练监控：</label>
+                                    <select id="train_monitor" name="train_monitor">
+                                        <option value="none">❌ 无监控</option>
+                                        <option value="wandb">📊 使用WandB/SwanLab</option>
+                                    </select>
+                                </div>
+                            </div>
                         </div>
-                        <div class="form-group">
-                            <label for="reasoning_grpo">是否使用Reasoning模式：</label>
-                            <select id="reasoning_grpo" name="reasoning">
-                                <option value="0">否</option>
-                                <option value="1">是</option>
-                            </select>
+                    </div>
+
+                    <div class="grid-two">
+                        <div class="parameter-card">
+                            <h3 class="card-title">数据集下载 (ModelScope)</h3>
+                            <div class="parameter-content">
+                                <div class="form-group">
+                                    <label for="dataset_id">数据集地址：</label>
+                                    <input type="text" id="dataset_id" value="gongjy/minimind_dataset">
+                                </div>
+                                <div class="form-group">
+                                    <label for="dataset_token">访问Token（可选）：</label>
+                                    <input type="password" id="dataset_token" placeholder="MODELSCOPE Token">
+                                </div>
+                                <div class="form-group">
+                                    <label for="dataset_dir">下载到目录：</label>
+                                    <div class="input-with-picker">
+                                        <input type="text" id="dataset_dir" value="./dataset">
+                                        <button type="button" class="btn-picker" onclick="selectFolder('dataset_dir')" title="选择文件夹">
+                                            📁
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <div class="dataset-actions">
+                                        <button type="button" class="btn-secondary" id="load-dataset-files">获取文件列表</button>
+                                        <button type="button" class="btn-primary" id="download-dataset">下载选中文件</button>
+                                    </div>
+                                    <div class="dataset-files" id="dataset-files">尚未加载文件列表</div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="form-group">
-                            <label for="reward_model_path_grpo">奖励模型路径：</label>
-                            <div class="input-with-picker">
-                                <input type="text" id="reward_model_path_grpo" name="reward_model_path" placeholder="../../internlm2-1_8b-reward">
-                                <button type="button" class="btn-picker" onclick="selectFolder('reward_model_path_grpo')" title="选择文件夹">
-                                    📁
-                                </button>
+
+                        <div class="parameter-card">
+                            <h3 class="card-title">权重上传/下载 (MS / HF)</h3>
+                            <div class="parameter-content">
+                                <div class="form-group">
+                                    <label for="weight_provider">平台：</label>
+                                    <select id="weight_provider">
+                                        <option value="ms">ModelScope</option>
+                                        <option value="hf">Hugging Face</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="repo_id">项目地址：</label>
+                                    <input type="text" id="repo_id" placeholder="如：gongjy/minimind_dataset 或 org/model">
+                                </div>
+                                <div class="form-group">
+                                    <label for="weight_token">访问Token：</label>
+                                    <input type="password" id="weight_token" placeholder="必填或留空根据仓库权限">
+                                </div>
+                                <div class="form-group">
+                                    <label for="local_weight_path">本地路径 (上传)：</label>
+                                    <div class="input-with-picker">
+                                        <input type="text" id="local_weight_path" value="./checkpoints">
+                                        <button type="button" class="btn-picker" onclick="selectFolder('local_weight_path')" title="选择文件或文件夹">
+                                            📁
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="remote_weight_path">远端子路径 (可选)：</label>
+                                    <input type="text" id="remote_weight_path" placeholder="例如 weights/model.pth">
+                                </div>
+                                <div class="form-group">
+                                    <label for="download_target_dir">下载保存目录：</label>
+                                    <div class="input-with-picker">
+                                        <input type="text" id="download_target_dir" value="./dataset">
+                                        <button type="button" class="btn-picker" onclick="selectFolder('download_target_dir')" title="选择文件夹">
+                                            📁
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="weight-actions">
+                                    <button type="button" class="btn-primary" id="download-weights-btn">下载权重</button>
+                                    <button type="button" class="btn-secondary" id="upload-weights-btn">上传权重</button>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- SPO强化学习参数 -->
-                <div class="parameter-card spo" style="display: none;">
-                    <h3 class="card-title">强化学习参数 (SPO)</h3>
-                    <div class="parameter-content">
-                        <div class="form-group">
-                            <label for="beta_spo">SPO KL惩罚系数：</label>
-                            <input type="text" id="beta_spo" name="beta" placeholder="0.02">
-                        </div>
-                        <div class="form-group">
-                            <label for="reasoning_spo">是否使用Reasoning模式：</label>
-                            <select id="reasoning_spo" name="reasoning">
-                                <option value="0">否</option>
-                                <option value="1">是</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="reward_model_path_spo">奖励模型路径：</label>
-                            <div class="input-with-picker">
-                                <input type="text" id="reward_model_path_spo" name="reward_model_path" placeholder="../../internlm2-1_8b-reward">
-                                <button type="button" class="btn-picker" onclick="selectFolder('reward_model_path_spo')" title="选择文件夹">
-                                    📁
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- 模型结构参数 -->
-                <div class="parameter-card">
-                    <h3 class="card-title">模型结构参数</h3>
-                    <div class="parameter-content">
-                        <div class="form-group">
-                            <label for="hidden_size">隐藏层维度：</label>
-                            <input type="number" id="hidden_size" name="hidden_size" min="128" value="512" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="num_hidden_layers">隐藏层数量：</label>
-                            <input type="number" id="num_hidden_layers" name="num_hidden_layers" min="1" value="8" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="max_seq_len">最大序列长度：</label>
-                            <input type="number" id="max_seq_len" name="max_seq_len" min="64" value="512" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="use_moe">是否使用MoE架构：</label>
-                            <select id="use_moe" name="use_moe">
-                                <option value="0">❌ 否</option>
-                                <option value="1">✅ 是</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- 模型保存与恢复 -->
-                <div class="parameter-card">
-                    <h3 class="card-title">模型保存与恢复</h3>
-                    <div class="parameter-content">
-                        <div class="form-group">
-                            <label for="save_dir">模型保存目录：</label>
-                            <div class="input-with-picker">
-                                <input type="text" id="save_dir" name="save_dir" value="./checkpoints" required>
-                                <button type="button" class="btn-picker" onclick="selectFolder('save_dir')" title="选择文件夹">
-                                    📁
-                                </button>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label for="save_interval">模型保存间隔：</label>
-                            <input type="number" id="save_interval" name="save_interval" min="1" value="1000" required>
-                        </div>
-                        <div class="form-group pretrain-sft">
-                            <label for="save_weight">保存权重前缀名：</label>
-                            <input type="text" id="save_weight" name="save_weight" value="model">
-                        </div>
-                        <div class="form-group lora">
-                            <label for="lora_name">LoRA权重名称：</label>
-                            <input type="text" id="lora_name" name="lora_name" value="lora_adapter">
-                        </div>
-                        <div class="form-group from-weight">
-                            <label for="from_weight">基于哪个权重训练：</label>
-                            <input type="text" id="from_weight" name="from_weight" value="pretrained_model">
-                        </div>
-                        <div class="form-group">
-                            <div class="checkbox-group">
-                                <input type="checkbox" id="from_resume" name="from_resume" value="1">
-                                <label for="from_resume">是否自动检测&续训</label>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- 其他设置 -->
-                <div class="parameter-card">
-                    <h3 class="card-title">其他设置</h3>
-                    <div class="parameter-content">
-                        <div class="form-group">
-                            <label for="training_mode">训练方式：</label>
-                            <select id="training_mode" name="training_mode" required>
-                                <option value="single_gpu">🎮 单卡训练</option>
-                                <option value="multi_gpu">🚀 多卡训练</option>
-                                <option value="cpu">💻 CPU训练</option>
-                            </select>
-                        </div>
-                        <div class="form-group" id="single-gpu-selection">
-                            <label for="device">GPU序号：</label>
-                            <input type="number" id="device" name="device" min="0" max="{{ gpu_count|default(1) - 1 }}" value="0" required>
-                        </div>
-                        <div class="form-group" id="multi-gpu-selection" style="display: none;">
-                            <label for="gpu_num">多卡并行数：</label>
-                            <div class="input-with-picker">
-                                <input type="number" id="gpu_num" name="gpu_num" min="1" max="{{ gpu_count|default(1) }}" value="{{ gpu_count|default(1) }}" required>
-                                <span class="hint-text">(可用GPU数量: {{ gpu_count|default(0) }})</span>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label for="train_monitor">训练监控：</label>
-                            <select id="train_monitor" name="train_monitor">
-                                <option value="none">❌ 无监控</option>
-                                <option value="wandb">📊 使用WandB/SwanLab</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-                
                 <script>
                     window.hasGpu = {{ has_gpu|default(false)|tojson|safe }};
                     window.gpuCount = {{ gpu_count|default(0)|tojson|safe }};
                 </script>
-                
+
                 <div class="submit-container">
                     <button type="submit" class="btn-primary">
                         <span class="btn-icon">🚀</span>

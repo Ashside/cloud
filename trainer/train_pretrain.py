@@ -3,6 +3,7 @@ import sys
 
 __package__ = "trainer"
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from trainer.env_loader import load_env, env_or_default, env_bool
 
 import argparse
 import time
@@ -18,6 +19,8 @@ from dataset.lm_dataset import PretrainDataset
 from trainer.trainer_utils import get_lr, Logger, is_main_process, lm_checkpoint, init_distributed_mode, setup_seed, init_model, SkipBatchSampler
 
 warnings.filterwarnings('ignore')
+
+load_env()
 
 
 def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
@@ -80,27 +83,27 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MiniMind Pretraining")
-    parser.add_argument("--save_dir", type=str, default="../out", help="模型保存目录")
-    parser.add_argument('--save_weight', default='pretrain', type=str, help="保存权重的前缀名")
-    parser.add_argument("--epochs", type=int, default=1, help="训练轮数（建议1轮zero或2-6轮充分训练）")
-    parser.add_argument("--batch_size", type=int, default=32, help="batch size")
-    parser.add_argument("--learning_rate", type=float, default=5e-4, help="初始学习率")
-    parser.add_argument("--device", type=str, default="cuda:0" if torch.cuda.is_available() else "cpu", help="训练设备")
-    parser.add_argument("--dtype", type=str, default="bfloat16", help="混合精度类型")
-    parser.add_argument("--num_workers", type=int, default=1, help="数据加载线程数")
-    parser.add_argument("--accumulation_steps", type=int, default=8, help="梯度累积步数")
-    parser.add_argument("--grad_clip", type=float, default=1.0, help="梯度裁剪阈值")
-    parser.add_argument("--log_interval", type=int, default=100, help="日志打印间隔")
-    parser.add_argument("--save_interval", type=int, default=100, help="模型保存间隔")
-    parser.add_argument('--hidden_size', default=512, type=int, help="隐藏层维度")
-    parser.add_argument('--num_hidden_layers', default=8, type=int, help="隐藏层数量")
-    parser.add_argument('--max_seq_len', default=512, type=int, help="训练的最大截断长度")
-    parser.add_argument('--use_moe', default=0, type=int, choices=[0, 1], help="是否使用MoE架构（0=否，1=是）")
-    parser.add_argument("--data_path", type=str, default="../dataset/pretrain_hq.jsonl", help="预训练数据路径")
-    parser.add_argument('--from_weight', default='none', type=str, help="基于哪个权重训练，为none则从头开始")
-    parser.add_argument('--from_resume', default=0, type=int, choices=[0, 1], help="是否自动检测&续训（0=否，1=是）")
-    parser.add_argument("--use_wandb", action="store_true", help="是否使用wandb")
-    parser.add_argument("--wandb_project", type=str, default="MiniMind-Pretrain", help="wandb项目名")
+    parser.add_argument("--save_dir", type=str, default=env_or_default("PRETRAIN_SAVE_DIR", "../out"), help="模型保存目录")
+    parser.add_argument('--save_weight', default=env_or_default("PRETRAIN_SAVE_WEIGHT", 'pretrain'), type=str, help="保存权重的前缀名")
+    parser.add_argument("--epochs", type=int, default=env_or_default("PRETRAIN_EPOCHS", 1, int), help="训练轮数（建议1轮zero或2-6轮充分训练）")
+    parser.add_argument("--batch_size", type=int, default=env_or_default("PRETRAIN_BATCH_SIZE", 32, int), help="batch size")
+    parser.add_argument("--learning_rate", type=float, default=env_or_default("PRETRAIN_LEARNING_RATE", 5e-4, float), help="初始学习率")
+    parser.add_argument("--device", type=str, default=env_or_default("PRETRAIN_DEVICE", "cuda:0" if torch.cuda.is_available() else "cpu"), help="训练设备")
+    parser.add_argument("--dtype", type=str, default=env_or_default("PRETRAIN_DTYPE", "bfloat16"), help="混合精度类型")
+    parser.add_argument("--num_workers", type=int, default=env_or_default("PRETRAIN_NUM_WORKERS", 1, int), help="数据加载线程数")
+    parser.add_argument("--accumulation_steps", type=int, default=env_or_default("PRETRAIN_ACCUMULATION_STEPS", 8, int), help="梯度累积步数")
+    parser.add_argument("--grad_clip", type=float, default=env_or_default("PRETRAIN_GRAD_CLIP", 1.0, float), help="梯度裁剪阈值")
+    parser.add_argument("--log_interval", type=int, default=env_or_default("PRETRAIN_LOG_INTERVAL", 100, int), help="日志打印间隔")
+    parser.add_argument("--save_interval", type=int, default=env_or_default("PRETRAIN_SAVE_INTERVAL", 100, int), help="模型保存间隔")
+    parser.add_argument('--hidden_size', default=env_or_default("PRETRAIN_HIDDEN_SIZE", 512, int), type=int, help="隐藏层维度")
+    parser.add_argument('--num_hidden_layers', default=env_or_default("PRETRAIN_NUM_HIDDEN_LAYERS", 8, int), type=int, help="隐藏层数量")
+    parser.add_argument('--max_seq_len', default=env_or_default("PRETRAIN_MAX_SEQ_LEN", 512, int), type=int, help="训练的最大截断长度")
+    parser.add_argument('--use_moe', default=env_or_default("PRETRAIN_USE_MOE", 0, int), type=int, choices=[0, 1], help="是否使用MoE架构（0=否，1=是）")
+    parser.add_argument("--data_path", type=str, default=env_or_default("PRETRAIN_DATA_PATH", "../dataset/pretrain_hq.jsonl"), help="预训练数据路径")
+    parser.add_argument('--from_weight', default=env_or_default("PRETRAIN_FROM_WEIGHT", 'none'), type=str, help="基于哪个权重训练，为none则从头开始")
+    parser.add_argument('--from_resume', default=env_or_default("PRETRAIN_FROM_RESUME", 0, int), type=int, choices=[0, 1], help="是否自动检测&续训（0=否，1=是）")
+    parser.add_argument("--use_wandb", action="store_true", default=env_bool("PRETRAIN_USE_WANDB", False), help="是否使用wandb")
+    parser.add_argument("--wandb_project", type=str, default=env_or_default("PRETRAIN_WANDB_PROJECT", "MiniMind-Pretrain"), help="wandb项目名")
     args = parser.parse_args()
 
     # ========== 1. 初始化环境和随机种子 ==========

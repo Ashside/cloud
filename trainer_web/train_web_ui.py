@@ -13,6 +13,8 @@ import time
 import psutil
 import glob
 import pathlib
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from trainer.env_loader import load_env, env_or_default, env_bool
 
 # 尝试导入torch来检测GPU
 try:
@@ -30,6 +32,23 @@ except ImportError:
     HAS_TORCH = False
     GPU_COUNT = 0
     GPU_NAMES = []
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+load_env(os.path.join(PROJECT_ROOT, '.env'))
+
+MODEL_SCOPE_DATASET_FILES = {
+    'gongjy/minimind_dataset': [
+        {'name': 'dpo.jsonl', 'size': '55MB'},
+        {'name': 'lora_identity.jsonl', 'size': '22.8KB'},
+        {'name': 'lora_medical.jsonl', 'size': '34MB'},
+        {'name': 'pretrain_hq.jsonl', 'size': '1.6GB'},
+        {'name': 'r1_mix_1024.jsonl', 'size': '340MB'},
+        {'name': 'sft_1024.jsonl', 'size': '5.6GB'},
+        {'name': 'sft_2048.jsonl', 'size': '9GB'},
+        {'name': 'sft_512.jsonl', 'size': '7.5GB'},
+        {'name': 'sft_mini_512.jsonl', 'size': '1.2GB'},
+    ]
+}
 
 def calculate_training_progress(process_id, process_info):
     """
@@ -333,7 +352,176 @@ def get_supported_training_methods():
 # 获取当前环境支持的训练方法
 SUPPORTED_METHODS = get_supported_training_methods()
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+def build_default_configs():
+    return {
+        'pretrain': {
+            'epochs': env_or_default('PRETRAIN_EPOCHS', 1, int),
+            'batch_size': env_or_default('PRETRAIN_BATCH_SIZE', 32, int),
+            'learning_rate': env_or_default('PRETRAIN_LEARNING_RATE', 5e-4, float),
+            'data_path': env_or_default('PRETRAIN_DATA_PATH', '../dataset/pretrain_hq.jsonl'),
+            'hidden_size': env_or_default('PRETRAIN_HIDDEN_SIZE', 512, int),
+            'num_hidden_layers': env_or_default('PRETRAIN_NUM_HIDDEN_LAYERS', 8, int),
+            'max_seq_len': env_or_default('PRETRAIN_MAX_SEQ_LEN', 512, int),
+            'use_moe': env_or_default('PRETRAIN_USE_MOE', 0, int),
+            'save_dir': env_or_default('PRETRAIN_SAVE_DIR', '../out'),
+            'save_interval': env_or_default('PRETRAIN_SAVE_INTERVAL', 100, int),
+            'save_weight': env_or_default('PRETRAIN_SAVE_WEIGHT', 'pretrain'),
+            'from_weight': env_or_default('PRETRAIN_FROM_WEIGHT', 'none'),
+            'from_resume': env_or_default('PRETRAIN_FROM_RESUME', 0, int),
+            'log_interval': env_or_default('PRETRAIN_LOG_INTERVAL', 100, int),
+        },
+        'sft': {
+            'epochs': env_or_default('FULL_SFT_EPOCHS', 2, int),
+            'batch_size': env_or_default('FULL_SFT_BATCH_SIZE', 16, int),
+            'learning_rate': env_or_default('FULL_SFT_LEARNING_RATE', 5e-7, float),
+            'data_path': env_or_default('FULL_SFT_DATA_PATH', '../dataset/sft_mini_512.jsonl'),
+            'hidden_size': env_or_default('FULL_SFT_HIDDEN_SIZE', 512, int),
+            'num_hidden_layers': env_or_default('FULL_SFT_NUM_HIDDEN_LAYERS', 8, int),
+            'max_seq_len': env_or_default('FULL_SFT_MAX_SEQ_LEN', 512, int),
+            'use_moe': env_or_default('FULL_SFT_USE_MOE', 0, int),
+            'save_dir': env_or_default('FULL_SFT_SAVE_DIR', '../out'),
+            'save_interval': env_or_default('FULL_SFT_SAVE_INTERVAL', 100, int),
+            'save_weight': env_or_default('FULL_SFT_SAVE_WEIGHT', 'full_sft'),
+            'from_weight': env_or_default('FULL_SFT_FROM_WEIGHT', 'pretrain'),
+            'from_resume': env_or_default('FULL_SFT_FROM_RESUME', 0, int),
+            'log_interval': env_or_default('FULL_SFT_LOG_INTERVAL', 100, int),
+        },
+        'lora': {
+            'epochs': env_or_default('LORA_EPOCHS', 50, int),
+            'batch_size': env_or_default('LORA_BATCH_SIZE', 32, int),
+            'learning_rate': env_or_default('LORA_LEARNING_RATE', 1e-4, float),
+            'data_path': env_or_default('LORA_DATA_PATH', '../dataset/lora_identity.jsonl'),
+            'hidden_size': env_or_default('LORA_HIDDEN_SIZE', 512, int),
+            'num_hidden_layers': env_or_default('LORA_NUM_HIDDEN_LAYERS', 8, int),
+            'max_seq_len': env_or_default('LORA_MAX_SEQ_LEN', 512, int),
+            'use_moe': env_or_default('LORA_USE_MOE', 0, int),
+            'save_dir': env_or_default('LORA_SAVE_DIR', '../out/lora'),
+            'save_interval': env_or_default('LORA_SAVE_INTERVAL', 1, int),
+            'lora_name': env_or_default('LORA_NAME', 'lora_identity'),
+            'from_weight': env_or_default('LORA_FROM_WEIGHT', 'full_sft'),
+            'from_resume': env_or_default('LORA_FROM_RESUME', 0, int),
+            'log_interval': env_or_default('LORA_LOG_INTERVAL', 10, int),
+        },
+        'dpo': {
+            'epochs': env_or_default('DPO_EPOCHS', 1, int),
+            'batch_size': env_or_default('DPO_BATCH_SIZE', 4, int),
+            'learning_rate': env_or_default('DPO_LEARNING_RATE', 4e-8, float),
+            'data_path': env_or_default('DPO_DATA_PATH', '../dataset/dpo.jsonl'),
+            'hidden_size': env_or_default('DPO_HIDDEN_SIZE', 512, int),
+            'num_hidden_layers': env_or_default('DPO_NUM_HIDDEN_LAYERS', 8, int),
+            'max_seq_len': env_or_default('DPO_MAX_SEQ_LEN', 1024, int),
+            'use_moe': env_or_default('DPO_USE_MOE', 0, int),
+            'save_dir': env_or_default('DPO_SAVE_DIR', '../out'),
+            'save_interval': env_or_default('DPO_SAVE_INTERVAL', 100, int),
+            'save_weight': env_or_default('DPO_SAVE_WEIGHT', 'dpo'),
+            'from_weight': env_or_default('DPO_FROM_WEIGHT', 'full_sft'),
+            'from_resume': env_or_default('DPO_FROM_RESUME', 0, int),
+            'log_interval': env_or_default('DPO_LOG_INTERVAL', 100, int),
+            'beta': env_or_default('DPO_BETA', 0.1, float),
+        },
+        'ppo': {
+            'epochs': env_or_default('PPO_EPOCHS', 1, int),
+            'batch_size': env_or_default('PPO_BATCH_SIZE', 2, int),
+            'learning_rate': env_or_default('PPO_LEARNING_RATE', 8e-8, float),
+            'data_path': env_or_default('PPO_DATA_PATH', '../dataset/rlaif-mini.jsonl'),
+            'hidden_size': env_or_default('PPO_HIDDEN_SIZE', 512, int),
+            'num_hidden_layers': env_or_default('PPO_NUM_HIDDEN_LAYERS', 8, int),
+            'max_seq_len': env_or_default('PPO_MAX_SEQ_LEN', 66, int),
+            'use_moe': env_or_default('PPO_USE_MOE', 0, int),
+            'save_dir': env_or_default('PPO_SAVE_DIR', '../out'),
+            'save_interval': env_or_default('PPO_SAVE_INTERVAL', 10, int),
+            'save_weight': env_or_default('PPO_SAVE_WEIGHT', 'ppo_actor'),
+            'log_interval': env_or_default('PPO_LOG_INTERVAL', 1, int),
+            'clip_epsilon': env_or_default('PPO_CLIP_EPSILON', 0.1, float),
+            'vf_coef': env_or_default('PPO_VF_COEF', 0.5, float),
+            'kl_coef': env_or_default('PPO_KL_COEF', 0.02, float),
+            'reasoning': env_or_default('PPO_REASONING', 1, int),
+            'update_old_actor_freq': env_or_default('PPO_UPDATE_OLD_ACTOR_FREQ', 4, int),
+            'reward_model_path': env_or_default('PPO_REWARD_MODEL_PATH', '../../internlm2-1_8b-reward'),
+            'from_resume': env_or_default('PPO_FROM_RESUME', 0, int),
+        },
+        'grpo': {
+            'epochs': env_or_default('GRPO_EPOCHS', 1, int),
+            'batch_size': env_or_default('GRPO_BATCH_SIZE', 2, int),
+            'learning_rate': env_or_default('GRPO_LEARNING_RATE', 8e-8, float),
+            'data_path': env_or_default('GRPO_DATA_PATH', '../dataset/rlaif-mini.jsonl'),
+            'hidden_size': env_or_default('GRPO_HIDDEN_SIZE', 512, int),
+            'num_hidden_layers': env_or_default('GRPO_NUM_HIDDEN_LAYERS', 8, int),
+            'max_seq_len': env_or_default('GRPO_MAX_SEQ_LEN', 66, int),
+            'use_moe': env_or_default('GRPO_USE_MOE', 0, int),
+            'save_dir': env_or_default('GRPO_SAVE_DIR', '../out'),
+            'save_interval': env_or_default('GRPO_SAVE_INTERVAL', 10, int),
+            'save_weight': env_or_default('GRPO_SAVE_WEIGHT', 'grpo'),
+            'log_interval': env_or_default('GRPO_LOG_INTERVAL', 1, int),
+            'beta': env_or_default('GRPO_BETA', 0.02, float),
+            'num_generations': env_or_default('GRPO_NUM_GENERATIONS', 8, int),
+            'reasoning': env_or_default('GRPO_REASONING', 1, int),
+            'reward_model_path': env_or_default('GRPO_REWARD_MODEL_PATH', '../../internlm2-1_8b-reward'),
+            'from_resume': env_or_default('GRPO_FROM_RESUME', 0, int),
+        },
+        'spo': {
+            'epochs': env_or_default('SPO_EPOCHS', 1, int),
+            'batch_size': env_or_default('SPO_BATCH_SIZE', 2, int),
+            'learning_rate': env_or_default('SPO_LEARNING_RATE', 1e-7, float),
+            'data_path': env_or_default('SPO_DATA_PATH', '../dataset/rlaif-mini.jsonl'),
+            'hidden_size': env_or_default('SPO_HIDDEN_SIZE', 512, int),
+            'num_hidden_layers': env_or_default('SPO_NUM_HIDDEN_LAYERS', 8, int),
+            'max_seq_len': env_or_default('SPO_MAX_SEQ_LEN', 66, int),
+            'use_moe': env_or_default('SPO_USE_MOE', 0, int),
+            'save_dir': env_or_default('SPO_SAVE_DIR', '../out'),
+            'save_interval': env_or_default('SPO_SAVE_INTERVAL', 10, int),
+            'save_weight': env_or_default('SPO_SAVE_WEIGHT', 'spo'),
+            'log_interval': env_or_default('SPO_LOG_INTERVAL', 1, int),
+            'beta': env_or_default('SPO_BETA', 0.02, float),
+            'reasoning': env_or_default('SPO_REASONING', 1, int),
+            'reward_model_path': env_or_default('SPO_REWARD_MODEL_PATH', '../../internlm2-1_8b-reward'),
+            'from_resume': env_or_default('SPO_FROM_RESUME', 0, int),
+        }
+    }
+
+
+DEFAULT_CONFIGS = build_default_configs()
+RESOURCE_DEFAULTS = {
+    'dataset_dir': os.getenv('DATASET_DEFAULT_DIR', './dataset'),
+    'modelscope_dataset': os.getenv('MODELSCOPE_DEFAULT_DATASET', 'gongjy/minimind_dataset'),
+    'modelscope_files': [f.strip() for f in os.getenv('MODELSCOPE_DEFAULT_FILES', '').split(',') if f.strip()],
+    'weights_target': os.getenv('WEIGHTS_DEFAULT_TARGET', './dataset'),
+    'upload_path': os.getenv('DEFAULT_MODEL_UPLOAD_PATH', './checkpoints'),
+    'download_path': os.getenv('DEFAULT_MODEL_DOWNLOAD_PATH', './dataset'),
+}
+
+def merge_with_defaults(train_type, params):
+    merged = DEFAULT_CONFIGS.get(train_type, {}).copy()
+    for key, value in params.items():
+        if value is None or value == '':
+            continue
+        merged[key] = value
+    return merged
+
+
+def safe_project_path(path):
+    """
+    确保路径位于项目目录内，返回绝对路径
+    """
+    if not path:
+        return PROJECT_ROOT
+    if path.startswith('./'):
+        path = path[2:]
+    abs_path = os.path.abspath(os.path.join(PROJECT_ROOT, path))
+    if not abs_path.startswith(PROJECT_ROOT):
+        raise ValueError('路径超出项目目录范围')
+    return abs_path
+
+
+def run_command(cmd, env=None, cwd=None):
+    completed = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        cwd=cwd or PROJECT_ROOT,
+        env=env
+    )
+    return completed
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
 
@@ -452,17 +640,16 @@ def healthz():
 
 @app.route('/train', methods=['POST'])
 def train():
-    data = request.json
-    train_type = data.get('train_type')
+    data = request.json or {}
+    train_type = data.get('train_type', 'pretrain')
+
+    if train_type not in DEFAULT_CONFIGS:
+        return jsonify({'success': False, 'error': '无效的训练类型'}), 400
+
+    params = merge_with_defaults(train_type, data.copy())
+    params.setdefault('from_resume', params.get('from_resume', '0'))
+    params.setdefault('train_monitor', params.get('train_monitor', 'none'))
     
-    # 移除不相关的参数
-    params = data.copy()
-    
-    # 处理复选框参数
-    if 'from_resume' not in params:
-        params['from_resume'] = '0'
-    
-    # 启动训练进程 - 允许匿名训练，不传入client_id
     process_id = start_training_process(train_type, params)
     
     if process_id:
@@ -599,6 +786,189 @@ def processes():
             'progress': progress  # 添加进度信息
         })
     return jsonify(result)
+
+@app.route('/api/defaults')
+def api_defaults():
+    return jsonify({
+        'train_types': DEFAULT_CONFIGS,
+        'resources': RESOURCE_DEFAULTS,
+        'gpu': {
+            'has_gpu': HAS_TORCH and GPU_COUNT > 0,
+            'count': GPU_COUNT
+        }
+    })
+
+def get_modelscope_file_listing(dataset_id, token=None):
+    env = os.environ.copy()
+    if token:
+        env['MODELSCOPE_API_TOKEN'] = token
+    files = []
+    source = 'fallback'
+    try:
+        completed = run_command(['modelscope', 'list', '--dataset', dataset_id], env=env)
+        if completed.returncode == 0:
+            for line in completed.stdout.splitlines():
+                cleaned = line.strip()
+                if not cleaned or cleaned.startswith('[') or cleaned.startswith('INFO'):
+                    continue
+                parts = cleaned.split()
+                name = parts[-1] if parts else cleaned
+                files.append({'name': name})
+            if files:
+                source = 'modelscope'
+    except FileNotFoundError:
+        pass
+    if not files:
+        fallback = MODEL_SCOPE_DATASET_FILES.get(dataset_id) or [{'name': f} for f in RESOURCE_DEFAULTS.get('modelscope_files', [])]
+        files = fallback
+    return files, source
+
+
+@app.route('/api/datasets/files')
+def list_dataset_files():
+    dataset_id = request.args.get('dataset_id', RESOURCE_DEFAULTS.get('modelscope_dataset'))
+    token = request.args.get('token')
+    files, source = get_modelscope_file_listing(dataset_id, token)
+    return jsonify({'dataset_id': dataset_id, 'files': files, 'source': source})
+
+
+@app.route('/api/datasets/download', methods=['POST'])
+def download_dataset():
+    data = request.json or {}
+    dataset_id = data.get('dataset_id', RESOURCE_DEFAULTS.get('modelscope_dataset'))
+    token = data.get('token') or os.getenv('MODELSCOPE_API_TOKEN')
+    files = data.get('files') or RESOURCE_DEFAULTS.get('modelscope_files', [])
+    if isinstance(files, str):
+        files = [f.strip() for f in files.split(',') if f.strip()]
+    dest_dir = data.get('dest_dir') or RESOURCE_DEFAULTS.get('dataset_dir', './dataset')
+    try:
+        target_dir = safe_project_path(dest_dir)
+        os.makedirs(target_dir, exist_ok=True)
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'无效的下载目录: {e}'}), 400
+
+    env = os.environ.copy()
+    if token:
+        env['MODELSCOPE_API_TOKEN'] = token
+
+    results = []
+    for fname in files:
+        cmd = ['modelscope', 'download', '--dataset', dataset_id, str(fname), '--local_dir', target_dir]
+        try:
+            completed = run_command(cmd, env=env)
+        except FileNotFoundError:
+            return jsonify({'success': False, 'message': 'modelscope 命令不可用，请先安装 modelscope CLI'}), 500
+        results.append({
+            'file': fname,
+            'returncode': completed.returncode,
+            'stdout': completed.stdout[-4000:] if completed.stdout else '',
+            'stderr': completed.stderr[-2000:] if completed.stderr else ''
+        })
+        if completed.returncode != 0:
+            return jsonify({'success': False, 'results': results, 'message': '部分文件下载失败'}), 500
+
+    return jsonify({'success': True, 'results': results, 'dest': target_dir})
+
+
+def build_auth_env(provider, token):
+    env = os.environ.copy()
+    if provider == 'hf' and token:
+        env['HF_TOKEN'] = token
+        env['HUGGINGFACEHUB_API_TOKEN'] = token
+    if provider == 'ms' and token:
+        env['MODELSCOPE_API_TOKEN'] = token
+    return env
+
+
+@app.route('/api/weights/download', methods=['POST'])
+def download_weights():
+    data = request.json or {}
+    provider = data.get('provider', 'ms')
+    repo_id = data.get('repo_id')
+    remote_path = data.get('remote_path')
+    target_dir = data.get('target_dir') or RESOURCE_DEFAULTS.get('download_path', './dataset')
+    token = data.get('token')
+
+    if not repo_id:
+        return jsonify({'success': False, 'message': '缺少仓库/项目地址'}), 400
+
+    try:
+        target_dir = safe_project_path(target_dir)
+        os.makedirs(target_dir, exist_ok=True)
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'无效的保存目录: {e}'}), 400
+
+    env = build_auth_env(provider, token)
+
+    if provider == 'hf':
+        cmd = ['huggingface-cli', 'download', repo_id]
+        if remote_path:
+            cmd.append(remote_path)
+        cmd.extend(['--local-dir', target_dir, '--local-dir-use-symlinks', 'False'])
+    else:
+        cmd = ['modelscope', 'download', '--model', repo_id]
+        if remote_path:
+            cmd.append(remote_path)
+        cmd.extend(['--local_dir', target_dir])
+
+    try:
+        completed = run_command(cmd, env=env)
+    except FileNotFoundError:
+        tool = 'huggingface-cli' if provider == 'hf' else 'modelscope'
+        return jsonify({'success': False, 'message': f'{tool} 命令不可用，请先安装对应CLI'}), 500
+    success = completed.returncode == 0
+    return jsonify({
+        'success': success,
+        'returncode': completed.returncode,
+        'stdout': completed.stdout[-4000:] if completed.stdout else '',
+        'stderr': completed.stderr[-2000:] if completed.stderr else '',
+        'target_dir': target_dir
+    }), (200 if success else 500)
+
+
+@app.route('/api/weights/upload', methods=['POST'])
+def upload_weights():
+    data = request.json or {}
+    provider = data.get('provider', 'ms')
+    repo_id = data.get('repo_id')
+    local_path = data.get('local_path') or RESOURCE_DEFAULTS.get('upload_path', './checkpoints')
+    remote_path = data.get('remote_path')
+    token = data.get('token')
+
+    if not repo_id:
+        return jsonify({'success': False, 'message': '缺少目标项目地址'}), 400
+
+    try:
+        abs_local = safe_project_path(local_path)
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'无效的本地路径: {e}'}), 400
+
+    if not os.path.exists(abs_local):
+        return jsonify({'success': False, 'message': '本地路径不存在'}), 400
+
+    env = build_auth_env(provider, token)
+
+    if provider == 'hf':
+        cmd = ['huggingface-cli', 'upload', repo_id, abs_local]
+        if remote_path:
+            cmd.append(remote_path)
+    else:
+        cmd = ['modelscope', 'upload', '--model', repo_id, abs_local]
+        if remote_path:
+            cmd.extend(['--target_path', remote_path])
+
+    try:
+        completed = run_command(cmd, env=env)
+    except FileNotFoundError:
+        tool = 'huggingface-cli' if provider == 'hf' else 'modelscope'
+        return jsonify({'success': False, 'message': f'{tool} 命令不可用，请先安装对应CLI'}), 500
+    success = completed.returncode == 0
+    return jsonify({
+        'success': success,
+        'returncode': completed.returncode,
+        'stdout': completed.stdout[-4000:] if completed.stdout else '',
+        'stderr': completed.stderr[-2000:] if completed.stderr else ''
+    }), (200 if success else 500)
 
 @app.route('/api/browse')
 def browse_files():
