@@ -27,26 +27,10 @@ LOG_FILE="$LOG_DIR/web_ui_$TIMESTAMP.log"
 echo "启动 MiniMind Web UI 服务..."
 echo "日志文件: $LOG_FILE"
 
-# 依赖预检
-python - <<'PY'
-import sys
-missing = []
-for m in ('flask', 'psutil'):
-    try:
-        __import__(m)
-    except Exception as e:
-        missing.append(f"{m}: {e.__class__.__name__} {e}")
-if missing:
-    print("依赖缺失或不可用:\n" + "\n".join(missing))
-    sys.exit(1)
-PY
-if [ $? -ne 0 ]; then
-  echo "启动失败：请先安装缺失依赖，例如 'pip install flask psutil'"
-  exit 1
-fi
+
 
 # 使用nohup启动服务
-nohup python -u train_web_ui.py > "$LOG_FILE" 2>&1 &
+nohup uv run train_web_ui.py > "$LOG_FILE" 2>&1 &
 
 # 保存PID
 echo $! > "train_web_ui.pid"
