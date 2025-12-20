@@ -19,6 +19,7 @@
         <button class="tab active" onclick="openTab(event, 'train')">开始训练</button>
         <button class="tab" onclick="openTab(event, 'processes')">训练进程</button>
         <button class="tab" onclick="openTab(event, 'logfiles')">日志文件</button>
+        <button class="tab" onclick="openTab(event, 'eval')">模型评测</button>
         <button class="tab" onclick="openTab(event, 'lora-exchange')">LoRA 联训</button>
         {% if transfer_debug %}
         <button class="tab" onclick="openTab(event, 'transfer')">跨服传输（调试）</button>
@@ -321,6 +322,88 @@
         </div>
         <div id="logfiles-list">
             <!-- 日志文件列表将通过JavaScript动态加载 -->
+        </div>
+    </div>
+
+    <div id="eval" class="tab-content hidden">
+        <div class="section-header">
+            <h2 class="section-title">模型评测 (基于 eval_llm.py)</h2>
+            <div class="section-actions">
+                <div class="tag">权重来源：out/；LoRA来源：out/lora/</div>
+            </div>
+        </div>
+        <div class="transfer-grid">
+            <div class="parameter-card">
+                <h3 class="card-title">运行设置</h3>
+                <div class="parameter-content transfer-content">
+                    <div class="form-group">
+                        <label for="eval-load-from">模型加载路径</label>
+                        <input type="text" id="eval-load-from" value="model">
+                        <small class="text-muted">等同 eval_llm.py --load_from</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="eval-weight">选择 out/ 权重</label>
+                        <select id="eval-weight">
+                            <option value="">加载中...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="eval-lora">选择 LoRA (可选)</label>
+                        <select id="eval-lora">
+                            <option value="None">不使用 LoRA</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="eval-hidden">隐藏维度</label>
+                        <input type="number" id="eval-hidden" value="512" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label for="eval-layers">层数</label>
+                        <input type="number" id="eval-layers" value="8" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label for="eval-max-tokens">最大生成长度</label>
+                        <input type="number" id="eval-max-tokens" value="512" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label for="eval-temp">温度</label>
+                        <input type="text" id="eval-temp" value="0.85">
+                    </div>
+                    <div class="form-group">
+                        <label for="eval-top-p">Top-p</label>
+                        <input type="text" id="eval-top-p" value="0.85">
+                    </div>
+                    <div class="form-group">
+                        <label for="eval-historys">历史轮数</label>
+                        <input type="number" id="eval-historys" value="0" min="0">
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="eval-use-moe">
+                        <label for="eval-use-moe">使用 MoE (文件名含 _moe)</label>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="eval-use-default">
+                        <label for="eval-use-default">使用内置测试提示（忽略自定义prompt）</label>
+                    </div>
+                    <div class="form-group full-width">
+                        <label for="eval-prompt">自定义 Prompt</label>
+                        <textarea id="eval-prompt" rows="4" placeholder="请输入对话提示"></textarea>
+                    </div>
+                    <div class="form-group full-width">
+                        <button type="button" class="btn-primary" id="btn-run-eval">
+                            <span class="btn-icon">▶</span> 运行评测
+                        </button>
+                        <button type="button" class="btn-secondary" id="btn-refresh-eval-weights">刷新权重列表</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="parameter-card">
+                <h3 class="card-title">输出结果</h3>
+                <div class="logs-container" id="eval-results">
+                    结果将在这里显示
+                </div>
+            </div>
         </div>
     </div>
 

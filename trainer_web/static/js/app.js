@@ -5,6 +5,7 @@ import { loadLogFiles } from './logfiles/list.js';
 import { refreshLog } from './processes/logs.js';
 import { initTransfer, onEnterTransfer } from './transfer/index.js';
 import { initLoraExchange, onEnterLora } from './lora_exchange/index.js';
+import { initEval, onEnterEval } from './eval/index.js';
 
 const hooks = {
   onEnterProcesses: () => {
@@ -24,6 +25,9 @@ const hooks = {
   },
   onEnterLora: () => {
     onEnterLora();
+  },
+  onEnterEval: () => {
+    onEnterEval();
   },
 };
 
@@ -367,6 +371,7 @@ window.addEventListener('load', () => {
   // startProcessPolling(); // 移动到钩子函数中
   loadProcesses(); // 仍然加载初始进程数据
   initLoraExchange();
+  initEval();
   if (window.transferDebugEnabled) {
     initTransfer();
   }

@@ -17,6 +17,12 @@ import glob
 import pathlib
 import requests
 from werkzeug.utils import secure_filename
+from transformers import AutoTokenizer, AutoModelForCausalLM, TextStreamer
+
+# 复用eval逻辑
+from model.model_minimind import MiniMindConfig, MiniMindForCausalLM
+from model.model_lora import apply_lora, load_lora
+from trainer.trainer_utils import setup_seed
 
 # 尝试导入torch来检测GPU
 try:
@@ -438,6 +444,50 @@ def safe_dataset_path(rel_path):
     if not abs_path.startswith(DATASET_DIR):
         return None, None
     return safe_rel, abs_path
+
+
+def parse_weight_name(filename):
+    """解析权重文件名，返回前缀/hidden_size/moe标记"""
+    base = os.path.basename(filename)
+    match = re.match(r'(.+?)_(\d+)(?:_moe)?\.pth$', base)
+    if not match:
+        return None
+    name = match.group(1)
+    hidden = int(match.group(2))
+    is_moe = base.endswith('_moe.pth')
+    return {'name': name, 'hidden_size': hidden, 'use_moe': 1 if is_moe else 0}
+
+
+def list_weights():
+    ensure_out_dir()
+    base_weights = []
+    for root, _, files in os.walk(OUT_DIR):
+        # 跳过LoRA子目录
+        if os.path.basename(root) == 'lora':
+            continue
+        for f in files:
+            if not f.endswith('.pth'):
+                continue
+            info = parse_weight_name(f)
+            if not info:
+                continue
+            rel = os.path.relpath(os.path.join(root, f), OUT_DIR)
+            base_weights.append({**info, 'relative_path': rel})
+    base_weights.sort(key=lambda x: x['relative_path'])
+
+    lora_dir = os.path.join(OUT_DIR, 'lora')
+    lora_weights = []
+    if os.path.exists(lora_dir):
+        for f in os.listdir(lora_dir):
+            if not f.endswith('.pth'):
+                continue
+            info = parse_weight_name(f)
+            if not info:
+                continue
+            lora_weights.append({**info, 'relative_path': os.path.join('lora', f)})
+        lora_weights.sort(key=lambda x: x['relative_path'])
+
+    return base_weights, lora_weights
 
 
 def check_transfer_token(req, allow_body=False):
@@ -914,6 +964,12 @@ def list_out_files():
                 continue
     files.sort(key=lambda x: x['name'])
     return jsonify({'base': OUT_DIR, 'files': files})
+
+
+@app.route('/api/eval/weights')
+def api_eval_weights():
+    base_weights, lora_weights = list_weights()
+    return jsonify({'base_weights': base_weights, 'lora_weights': lora_weights, 'out_dir': OUT_DIR})
 
 
 @app.route('/api/dataset-files')
@@ -1406,6 +1462,128 @@ def push_weight_to_callback(callback_url, file_path, token=None):
     except Exception as e:
         return False, str(e)
 
+
+def load_eval_model(params):
+    """按eval_llm.py逻辑加载模型"""
+    load_from = params.get('load_from', 'model')
+    save_dir = params.get('save_dir', 'out')
+    weight = params.get('weight', 'full_sft')
+    lora_weight = params.get('lora_weight', 'None')
+    hidden_size = int(params.get('hidden_size', 512))
+    num_hidden_layers = int(params.get('num_hidden_layers', 8))
+    use_moe = int(params.get('use_moe', 0))
+    inference_rope_scaling = bool(params.get('inference_rope_scaling', False))
+    device = params.get('device') or ('cuda' if torch.cuda.is_available() else 'cpu')
+
+    tokenizer = AutoTokenizer.from_pretrained(load_from)
+    if 'model' in load_from:
+        model = MiniMindForCausalLM(MiniMindConfig(
+            hidden_size=hidden_size,
+            num_hidden_layers=num_hidden_layers,
+            use_moe=bool(use_moe),
+            inference_rope_scaling=inference_rope_scaling
+        ))
+        moe_suffix = '_moe' if use_moe else ''
+        ckp = os.path.abspath(os.path.join(PROJECT_ROOT, save_dir, f"{weight}_{hidden_size}{moe_suffix}.pth"))
+        if not os.path.exists(ckp):
+            raise FileNotFoundError(f"未找到权重文件: {ckp}")
+        state = torch.load(ckp, map_location=device)
+        model.load_state_dict(state, strict=True)
+        if lora_weight and lora_weight != 'None':
+            apply_lora(model)
+            lora_path = os.path.abspath(os.path.join(PROJECT_ROOT, save_dir, 'lora', f"{lora_weight}_{hidden_size}.pth"))
+            if not os.path.exists(lora_path):
+                raise FileNotFoundError(f"未找到LoRA文件: {lora_path}")
+            load_lora(model, lora_path)
+    else:
+        model = AutoModelForCausalLM.from_pretrained(load_from, trust_remote_code=True)
+    model.eval().to(device)
+    return model, tokenizer, device
+
+
+def run_eval_once(model, tokenizer, device, prompt, params, conversation=None):
+    conversation = conversation or []
+    conversation = conversation[-params['historys']:] if params['historys'] else []
+    conversation.append({"role": "user", "content": prompt})
+
+    templates = {"conversation": conversation, "tokenize": False, "add_generation_prompt": True}
+    if params['weight'] == 'reason':
+        templates["enable_thinking"] = True
+    inputs_text = tokenizer.apply_chat_template(**templates) if params['weight'] != 'pretrain' else (tokenizer.bos_token + prompt)
+    inputs = tokenizer(inputs_text, return_tensors="pt", truncation=True).to(device)
+
+    generated_ids = model.generate(
+        inputs=inputs["input_ids"],
+        attention_mask=inputs["attention_mask"],
+        max_new_tokens=params['max_new_tokens'],
+        do_sample=True,
+        pad_token_id=tokenizer.pad_token_id,
+        eos_token_id=tokenizer.eos_token_id,
+        top_p=params['top_p'],
+        temperature=params['temperature'],
+        repetition_penalty=1.0
+    )
+    response = tokenizer.decode(generated_ids[0][len(inputs["input_ids"][0]):], skip_special_tokens=True)
+    conversation.append({"role": "assistant", "content": response})
+    return response, conversation
+
+
+@app.route('/api/eval/run', methods=['POST'])
+def api_eval_run():
+    data = request.get_json(silent=True) or {}
+    try:
+        params = {
+            'load_from': data.get('load_from') or 'model',
+            'save_dir': data.get('save_dir') or 'out',
+            'weight': data.get('weight') or 'full_sft',
+            'lora_weight': data.get('lora_weight') or 'None',
+            'hidden_size': int(data.get('hidden_size') or 512),
+            'num_hidden_layers': int(data.get('num_hidden_layers') or 8),
+            'use_moe': int(data.get('use_moe') or 0),
+            'inference_rope_scaling': bool(data.get('inference_rope_scaling') or False),
+            'max_new_tokens': int(data.get('max_new_tokens') or 512),
+            'temperature': float(data.get('temperature') or 0.85),
+            'top_p': float(data.get('top_p') or 0.85),
+            'historys': int(data.get('historys') or 0),
+            'device': data.get('device') or ('cuda' if torch.cuda.is_available() else 'cpu')
+        }
+    except Exception as e:
+        return jsonify({'error': f'参数错误: {str(e)}'}), 400
+
+    prompts = []
+    if data.get('use_default_prompts'):
+        prompts = [
+            '你有什么特长？',
+            '为什么天空是蓝色的',
+            '请用Python写一个计算斐波那契数列的函数',
+            '解释一下\"光合作用\"的基本过程',
+            '如果明天下雨，我应该如何出门',
+            '比较一下猫和狗作为宠物的优缺点',
+            '解释什么是机器学习',
+            '推荐一些中国的美食'
+        ]
+    else:
+        prompt = data.get('prompt')
+        if not prompt:
+            return jsonify({'error': '请提供prompt或选择默认测试'}), 400
+        prompts = [prompt]
+
+    try:
+        model, tokenizer, device = load_eval_model(params)
+    except Exception as e:
+        return jsonify({'error': f'模型加载失败: {str(e)}'}), 500
+
+    outputs = []
+    conversation = []
+    try:
+        for p in prompts:
+            setup_seed(2026)
+            resp, conversation = run_eval_once(model, tokenizer, device, p, params, conversation)
+            outputs.append({'prompt': p, 'response': resp})
+    except Exception as e:
+        return jsonify({'error': f'推理失败: {str(e)}'}), 500
+
+    return jsonify({'success': True, 'outputs': outputs})
 
 def watch_lora_training(task_id, process_id, result_file, callback):
     """监控LoRA任务，完成后可选回传"""

@@ -386,6 +386,26 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     color: var(--text-secondary);
 }
 
+.log-block {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 0.75rem;
+    margin-bottom: 0.75rem;
+    background: rgba(22, 22, 32, 0.4);
+}
+
+.log-header {
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: var(--text);
+}
+
+.log-line {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    margin: 0.15rem 0;
+}
+
 .metric-item {
     display: flex;
     align-items: center;

@@ -81,6 +81,10 @@ export function getDatasetFiles() {
   return fetchWithTimeoutAndRetry('/api/dataset-files').then((r) => r.json());
 }
 
+export function getEvalWeights() {
+  return fetchWithTimeoutAndRetry('/api/eval/weights').then((r) => r.json());
+}
+
 export function pingRemote(payload) {
   return fetchWithTimeoutAndRetry('/api/ping-remote', {
     method: 'POST',
@@ -123,6 +127,14 @@ export function pullRemoteWeight(payload) {
 
 export function getTransferStatus(taskId) {
   return fetchWithTimeoutAndRetry(`/api/transfer-status/${taskId}`).then((r) => r.json());
+}
+
+export function runEval(payload) {
+  return fetchWithTimeoutAndRetry('/api/eval/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }, 300000).then((r) => r.json());
 }
 
 export function startRemoteLora(payload) {
