@@ -1481,7 +1481,14 @@ def load_eval_model(params):
     inference_rope_scaling = bool(params.get('inference_rope_scaling', False))
     device = params.get('device') or ('cuda' if torch.cuda.is_available() else 'cpu')
 
-    tokenizer = AutoTokenizer.from_pretrained(load_from)
+    # 解析本地路径，避免无网络时去huggingface拉取
+    load_from_path = load_from
+    if not os.path.isabs(load_from_path):
+        candidate = os.path.abspath(os.path.join(PROJECT_ROOT, load_from_path))
+        if os.path.exists(candidate):
+            load_from_path = candidate
+
+    tokenizer = AutoTokenizer.from_pretrained(load_from_path, local_files_only=True)
     if 'model' in load_from:
         model = MiniMindForCausalLM(MiniMindConfig(
             hidden_size=hidden_size,
@@ -1502,7 +1509,7 @@ def load_eval_model(params):
                 raise FileNotFoundError(f"未找到LoRA文件: {lora_path}")
             load_lora(model, lora_path)
     else:
-        model = AutoModelForCausalLM.from_pretrained(load_from, trust_remote_code=True)
+        model = AutoModelForCausalLM.from_pretrained(load_from_path, trust_remote_code=True, local_files_only=True)
     model.eval().to(device)
     return model, tokenizer, device
 
