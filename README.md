@@ -25,6 +25,11 @@
    ```bash
    cd /path/to/cloud
    ```
+   切换到 `dev` 分支
+    ```bash
+    git checkout dev
+    git pull
+    ```
 2. 可选：设置端口（autodl 默认开放 6006/6008，默认使用 6006）：
    ```bash
    export FLASK_PORT=6006
