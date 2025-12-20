@@ -20,6 +20,11 @@ fi
 LOG_DIR="../logfile"
 mkdir -p "$LOG_DIR"
 
+# autodl 仅开放 6006/6008；允许通过环境变量覆盖，否则优先 6006
+if [ -z "$FLASK_PORT" ] && [ -z "$PORT" ]; then
+  export FLASK_PORT=6006
+fi
+
 # 生成时间戳
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_FILE="$LOG_DIR/web_ui_$TIMESTAMP.log"

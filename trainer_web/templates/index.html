@@ -325,6 +325,7 @@
             <h2 class="section-title">跨服务器模型传输</h2>
             <div class="section-actions">
                 <div class="tag">本地 out 路径：<code id="local-out-base">./out</code></div>
+                <div class="tag">autodl 仅 6006/6008 端口开放（跨区：西北B ↔ 北京B）</div>
             </div>
         </div>
         <div class="transfer-grid">
@@ -333,8 +334,8 @@
                 <p class="transfer-subtitle">A → B：仅可从本地 out 目录中选择权重文件并推送</p>
                 <div class="parameter-content transfer-content">
                     <div class="form-group full-width">
-                        <label for="upload-remote-url">目标服务器URL</label>
-                        <input type="text" id="upload-remote-url" placeholder="http://serverB:12581">
+                        <label for="upload-remote-url">目标服务器URL（建议 6006/6008）</label>
+                        <input type="text" id="upload-remote-url" placeholder="http://serverB:6006">
                     </div>
                     <div class="form-group full-width">
                         <label for="upload-token">鉴权令牌 (可选，需与对端 TRANSFER_TOKEN 一致)</label>
@@ -380,8 +381,8 @@
                 <p class="transfer-subtitle">B ← A：从远端 out 目录拉取到本地 out</p>
                 <div class="parameter-content transfer-content">
                     <div class="form-group full-width">
-                        <label for="download-remote-url">来源服务器URL</label>
-                        <input type="text" id="download-remote-url" placeholder="http://serverA:12581">
+                        <label for="download-remote-url">来源服务器URL（建议 6006/6008）</label>
+                        <input type="text" id="download-remote-url" placeholder="http://serverA:6006">
                     </div>
                     <div class="form-group full-width">
                         <label for="download-token">鉴权令牌 (可选)</label>

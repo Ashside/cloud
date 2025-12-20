@@ -355,6 +355,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..'))
 OUT_DIR = os.path.abspath(os.path.join(PROJECT_ROOT, 'out'))
 TRANSFER_TOKEN = os.environ.get('TRANSFER_TOKEN')  # 可选：用于简单鉴权
+ALLOWED_PORTS = [6006, 6008]  # autodl 仅开放端口
 
 # 跨服务器传输任务状态
 transfer_tasks = {}
@@ -380,6 +381,11 @@ def normalize_target_url(raw_url):
         parsed = urllib.parse.urlparse(raw_url)
     if not parsed.netloc:
         return None
+    # autodl 仅开放 6006/6008，若未指定端口则默认 6006
+    if parsed.port is None and parsed.hostname:
+        default_port = ALLOWED_PORTS[0]
+        netloc = f"{parsed.hostname}:{default_port}"
+        parsed = parsed._replace(netloc=netloc)
     # 仅保留 scheme://netloc 以及 path（去掉末尾的斜杠）
     normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip('/')
     return normalized
@@ -1313,21 +1319,18 @@ def delete(process_id):
         return jsonify({'success': True})
     return jsonify({'success': False})
 
-def find_available_port(start_port=12581, max_attempts=100):
-    """查找可用的端口号
-    
-    Args:
-        start_port: 起始端口号
-        max_attempts: 最大尝试次数
-        
-    Returns:
-        可用的端口号，如果没有找到则返回None
-    """
-    for port in range(start_port, start_port + max_attempts):
+def find_available_port(preferred=None, allowed_ports=None):
+    """在限定端口中查找可用端口（autodl 仅开放 6006/6008）"""
+    allowed = allowed_ports or ALLOWED_PORTS
+    ordered = []
+    if preferred and preferred in allowed:
+        ordered.append(preferred)
+    ordered.extend([p for p in allowed if p not in ordered])
+    for port in ordered:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         result = sock.connect_ex(('localhost', port))
         sock.close()
-        if result != 0:  # 端口可用
+        if result != 0:
             return port
     return None
 
@@ -1432,15 +1435,17 @@ if __name__ == '__main__':
     with open(PID_FILE, 'w') as f:
         f.write(str(os.getpid()))
     
-    # 尝试使用默认端口12581，如果被占用则自动寻找可用端口
-    port = find_available_port(12581)
+    # autodl 仅开放 6006/6008；优先使用环境变量 FLASK_PORT/PORT
+    preferred_env_port = os.environ.get('FLASK_PORT') or os.environ.get('PORT')
+    preferred_env_port = int(preferred_env_port) if preferred_env_port and str(preferred_env_port).isdigit() else None
+    port = find_available_port(preferred=preferred_env_port)
     if port is not None:
         print(f"启动Flask服务器在 http://0.0.0.0:{port}")
         print(f"使用nohup启动可保持服务持续运行: nohup python -u scripts/train_web_ui.py &")
         # 使用0.0.0.0作为host以兼容VSCode的端口转发功能
         app.run(host='0.0.0.0', port=port, debug=False)  # 生产环境关闭debug
     else:
-        print("无法找到可用的端口，请检查系统端口占用情况")
+        print(f"无法找到可用端口，请检查 {ALLOWED_PORTS} 是否被占用")
         # 删除PID文件
         if os.path.exists(PID_FILE):
             try:
