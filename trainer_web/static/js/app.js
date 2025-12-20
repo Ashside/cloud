@@ -4,6 +4,7 @@ import { startProcessPolling, stopProcessPolling, loadProcesses } from './proces
 import { loadLogFiles } from './logfiles/list.js';
 import { refreshLog } from './processes/logs.js';
 import { initTransfer, onEnterTransfer } from './transfer/index.js';
+import { initLoraExchange, onEnterLora } from './lora_exchange/index.js';
 
 const hooks = {
   onEnterProcesses: () => {
@@ -20,6 +21,9 @@ const hooks = {
   },
   onEnterTransfer: () => {
     onEnterTransfer();
+  },
+  onEnterLora: () => {
+    onEnterLora();
   },
 };
 
@@ -362,5 +366,8 @@ window.addEventListener('load', () => {
   // 不再立即开始轮询，而是等待用户切换到进程标签页
   // startProcessPolling(); // 移动到钩子函数中
   loadProcesses(); // 仍然加载初始进程数据
-  initTransfer();
+  initLoraExchange();
+  if (window.transferDebugEnabled) {
+    initTransfer();
+  }
 });

@@ -19,7 +19,10 @@
         <button class="tab active" onclick="openTab(event, 'train')">开始训练</button>
         <button class="tab" onclick="openTab(event, 'processes')">训练进程</button>
         <button class="tab" onclick="openTab(event, 'logfiles')">日志文件</button>
-        <button class="tab" onclick="openTab(event, 'transfer')">跨服传输</button>
+        <button class="tab" onclick="openTab(event, 'lora-exchange')">LoRA 联训</button>
+        {% if transfer_debug %}
+        <button class="tab" onclick="openTab(event, 'transfer')">跨服传输（调试）</button>
+        {% endif %}
     </div>
     
     <div id="train" class="tab-content">
@@ -278,6 +281,7 @@
                 <script>
                     window.hasGpu = {{ has_gpu|default(false)|tojson|safe }};
                     window.gpuCount = {{ gpu_count|default(0)|tojson|safe }};
+                    window.transferDebugEnabled = {{ transfer_debug|default(false)|tojson|safe }};
                 </script>
                 
                 <div class="submit-container">
@@ -320,6 +324,142 @@
         </div>
     </div>
 
+    <div id="lora-exchange" class="tab-content hidden">
+        <div class="section-header">
+            <h2 class="section-title">跨区 LoRA 远程联训（A ↔ B）</h2>
+            <div class="section-actions">
+                <div class="tag">A（本机）只能选择 dataset/ 作为数据来源</div>
+                <div class="tag">B（远端）仅开放 6006 / 6008</div>
+            </div>
+        </div>
+        <div class="transfer-grid">
+            <div class="parameter-card">
+                <h3 class="card-title">发送到 B（权重 + 数据集 + 参数）</h3>
+                <p class="transfer-subtitle">A → B：上传 out/ 权重、dataset/ 数据，触发远端 LoRA 训练</p>
+                <div class="parameter-content transfer-content">
+                    <div class="form-group full-width">
+                        <label for="lora-remote-url">B 服务器 URL（建议 :6006 / :6008）</label>
+                        <input type="text" id="lora-remote-url" placeholder="http://serverB:6006">
+                    </div>
+                    <div class="form-group full-width">
+                        <label for="lora-token">鉴权令牌 (可选，与 B TRANSFER_TOKEN 一致)</label>
+                        <input type="text" id="lora-token" placeholder="可选 token">
+                    </div>
+                    <div class="form-group">
+                        <label for="lora-base-weight">选择 out/ 权重</label>
+                        <select id="lora-base-weight">
+                            <option value="">加载中...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="lora-dataset">选择 dataset/ 数据文件</label>
+                        <select id="lora-dataset">
+                            <option value="">加载中...</option>
+                        </select>
+                    </div>
+                    <div class="form-group inline-actions">
+                        <button type="button" class="btn-secondary" id="btn-refresh-lora-lists">刷新列表</button>
+                        <button type="button" class="btn-secondary" id="btn-lora-ping">Ping B</button>
+                    </div>
+                    <div class="form-group">
+                        <label for="lora-name">LoRA 名称</label>
+                        <input type="text" id="lora-name" value="remote_lora">
+                    </div>
+                    <div class="form-group">
+                        <label for="lora-epochs">轮数</label>
+                        <input type="number" id="lora-epochs" value="10" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label for="lora-batch">Batch Size</label>
+                        <input type="number" id="lora-batch" value="16" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label for="lora-lr">学习率</label>
+                        <input type="text" id="lora-lr" value="1e-4">
+                    </div>
+                    <div class="form-group">
+                        <label for="lora-hidden">隐藏维度</label>
+                        <input type="number" id="lora-hidden" value="512" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label for="lora-maxlen">最大序列长度</label>
+                        <input type="number" id="lora-maxlen" value="512" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label for="lora-save-interval">保存间隔</label>
+                        <input type="number" id="lora-save-interval" value="1" min="1">
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="lora-overwrite">
+                        <label for="lora-overwrite">允许覆盖 B 端同名文件</label>
+                    </div>
+                    <div class="form-group full-width">
+                        <button type="button" class="btn-primary" id="btn-start-remote-lora">
+                            <span class="btn-icon">🚀</span> 启动远程 LoRA 训练
+                        </button>
+                    </div>
+                </div>
+                <div class="progress-container">
+                    <div class="progress-info">
+                        <span id="lora-upload-weight-status">权重上传：等待</span>
+                        <span id="lora-upload-weight-progress">0%</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="lora-upload-weight-fill" style="width: 0%;"></div>
+                    </div>
+                    <div class="progress-info">
+                        <span id="lora-upload-dataset-status">数据集上传：等待</span>
+                        <span id="lora-upload-dataset-progress">0%</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="lora-upload-dataset-fill" style="width: 0%;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="parameter-card">
+                <h3 class="card-title">等待 B 完成并回传</h3>
+                <p class="transfer-subtitle">B 完成后可自动回传，也可手动拉取</p>
+                <div class="parameter-content transfer-content">
+                    <div class="form-group full-width">
+                        <label>回传地址（本机）</label>
+                        <input type="text" id="lora-callback-url" placeholder="http://serverA:6006" value="">
+                        <small class="text-muted">默认使用当前页面域名</small>
+                    </div>
+                    <div class="form-group full-width">
+                        <label for="lora-callback-token">回传鉴权 (可选)</label>
+                        <input type="text" id="lora-callback-token" placeholder="可选 token">
+                    </div>
+                    <div class="form-group">
+                        <label for="lora-remote-task">远程任务ID</label>
+                        <input type="text" id="lora-remote-task" readonly placeholder="等待启动">
+                    </div>
+                    <div class="form-group">
+                        <label for="lora-remote-result">远端结果文件（相对 out/）</label>
+                        <input type="text" id="lora-remote-result" readonly placeholder="等待启动">
+                    </div>
+                    <div class="form-group inline-actions">
+                        <button type="button" class="btn-secondary" id="btn-poll-remote-lora">查询远程状态</button>
+                        <button type="button" class="btn-secondary" id="btn-download-lora">手动拉取回传</button>
+                    </div>
+                </div>
+                <div class="progress-container">
+                    <div class="progress-info">
+                        <span id="lora-remote-status-text">等待任务</span>
+                        <span id="lora-remote-progress-number">0%</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="lora-remote-progress-fill" style="width: 0%;"></div>
+                    </div>
+                    <div class="progress-info">
+                        <span id="lora-remote-detail-text" class="text-muted"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if transfer_debug %}
     <div id="transfer" class="tab-content hidden">
         <div class="section-header">
             <h2 class="section-title">跨服务器模型传输</h2>
@@ -423,6 +563,7 @@
             </div>
         </div>
     </div>
+    {% endif %}
     
     <!-- 文件浏览器模态框 -->
     <div id="file-browser-modal" class="modal hidden">

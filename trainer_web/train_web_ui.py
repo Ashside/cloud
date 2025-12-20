@@ -127,7 +127,7 @@ def calculate_training_progress(process_id, process_info):
                 for pattern in epoch_patterns:
                     match = re.search(pattern, line, re.IGNORECASE)
                     if match:
-                        if 'Epoch:\[' in pattern:
+                        if r'Epoch:\[' in pattern:
                             current_epoch = int(match.group(1))
                             total_epochs = int(match.group(2))
                         else:
@@ -354,17 +354,28 @@ PID_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'train_web_u
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..'))
 OUT_DIR = os.path.abspath(os.path.join(PROJECT_ROOT, 'out'))
+DATASET_DIR = os.path.abspath(os.path.join(PROJECT_ROOT, 'dataset'))
 TRANSFER_TOKEN = os.environ.get('TRANSFER_TOKEN')  # 可选：用于简单鉴权
 ALLOWED_PORTS = [6006, 6008]  # autodl 仅开放端口
+TRANSFER_DEBUG = os.environ.get('TRANSFER_DEBUG', '0') == '1'
 
 # 跨服务器传输任务状态
 transfer_tasks = {}
 transfer_lock = threading.Lock()
 
+# LoRA 远程协作任务状态
+lora_exchange_tasks = {}
+lora_lock = threading.Lock()
+
 
 def ensure_out_dir():
     os.makedirs(OUT_DIR, exist_ok=True)
     return OUT_DIR
+
+
+def ensure_dataset_dir():
+    os.makedirs(DATASET_DIR, exist_ok=True)
+    return DATASET_DIR
 
 
 def normalize_target_url(raw_url):
@@ -410,6 +421,25 @@ def safe_out_path(rel_path):
     return safe_rel, abs_path
 
 
+def safe_dataset_path(rel_path):
+    """将相对路径限制在dataset目录下，并返回(安全相对路径, 绝对路径)"""
+    if not rel_path:
+        return None, None
+    normalized = os.path.normpath(rel_path).replace('\\', '/')
+    normalized = normalized.lstrip('/')
+    if normalized.startswith('..'):
+        return None, None
+    parts = [secure_filename(p) for p in normalized.split('/') if p not in ('', '.')]
+    safe_rel = '/'.join([p for p in parts if p])
+    if not safe_rel:
+        return None, None
+    ensure_dataset_dir()
+    abs_path = os.path.abspath(os.path.join(DATASET_DIR, *safe_rel.split('/')))
+    if not abs_path.startswith(DATASET_DIR):
+        return None, None
+    return safe_rel, abs_path
+
+
 def check_transfer_token(req, allow_body=False):
     """当设置了TRANSFER_TOKEN时，校验传输令牌"""
     if not TRANSFER_TOKEN:
@@ -450,6 +480,32 @@ def update_transfer_task(task_id, **updates):
 def get_transfer_task(task_id):
     with transfer_lock:
         return transfer_tasks.get(task_id)
+
+
+def create_lora_task(payload):
+    task_id = uuid.uuid4().hex
+    with lora_lock:
+        lora_exchange_tasks[task_id] = {
+            'id': task_id,
+            'status': 'pending',
+            'message': '等待启动',
+            'process_id': None,
+            'result_file': None,
+            'callback': payload.get('callback'),
+            'created_at': int(time.time())
+        }
+    return task_id
+
+
+def update_lora_task(task_id, **updates):
+    with lora_lock:
+        if task_id in lora_exchange_tasks:
+            lora_exchange_tasks[task_id].update(updates)
+
+
+def get_lora_task(task_id):
+    with lora_lock:
+        return lora_exchange_tasks.get(task_id)
 
 # Authentication removed - allow anonymous training
 
@@ -546,7 +602,12 @@ def start_training_process(train_type, params, client_id=None):
 @app.route('/')
 def index():
     # 传递GPU信息到前端
-    return render_template('index.html', has_gpu=HAS_TORCH and GPU_COUNT > 0, gpu_count=GPU_COUNT)
+    return render_template(
+        'index.html',
+        has_gpu=HAS_TORCH and GPU_COUNT > 0,
+        gpu_count=GPU_COUNT,
+        transfer_debug=TRANSFER_DEBUG
+    )
 
 @app.route('/healthz')
 def healthz():
@@ -855,6 +916,31 @@ def list_out_files():
     return jsonify({'base': OUT_DIR, 'files': files})
 
 
+@app.route('/api/dataset-files')
+def list_dataset_files():
+    """列出dataset目录下可传输的数据文件"""
+    token_error = check_transfer_token(request)
+    if token_error:
+        return token_error
+    ensure_dataset_dir()
+    files = []
+    for root, _, filenames in os.walk(DATASET_DIR):
+        for name in filenames:
+            file_path = os.path.join(root, name)
+            try:
+                stat = os.stat(file_path)
+                rel_path = os.path.relpath(file_path, DATASET_DIR)
+                files.append({
+                    'name': rel_path,
+                    'size': stat.st_size,
+                    'modified': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat.st_mtime))
+                })
+            except OSError:
+                continue
+    files.sort(key=lambda x: x['name'])
+    return jsonify({'base': DATASET_DIR, 'files': files})
+
+
 @app.route('/api/transfer-status/<task_id>')
 def transfer_status(task_id):
     task = get_transfer_task(task_id)
@@ -908,6 +994,28 @@ def remote_out_files():
         return jsonify({'success': False, 'error': str(e)}), 502
 
 
+@app.route('/api/upload-dataset-to-remote', methods=['POST'])
+def upload_dataset_to_remote():
+    data = request.get_json(silent=True) or {}
+    target_url = normalize_target_url(data.get('target_url'))
+    filename = data.get('filename')
+    token = data.get('token')
+    overwrite = str(data.get('overwrite', False)).lower() in ('1', 'true', 'yes', 'on')
+    if not target_url or not filename:
+        return jsonify({'error': '目标地址和数据文件均不能为空'}), 400
+    safe_rel, file_path = safe_dataset_path(filename)
+    if not file_path or not os.path.exists(file_path):
+        return jsonify({'error': '请选择dataset目录下存在的文件'}), 400
+
+    task_id = create_transfer_task('upload-dataset', safe_rel, target_url)
+    threading.Thread(
+        target=upload_worker_dataset,
+        args=(task_id, target_url, safe_rel, file_path, token, overwrite),
+        daemon=True
+    ).start()
+    return jsonify({'task_id': task_id})
+
+
 @app.route('/api/upload-to-remote', methods=['POST'])
 def upload_to_remote():
     data = request.get_json(silent=True) or {}
@@ -959,6 +1067,35 @@ def receive_weight():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/receive-dataset', methods=['POST'])
+def receive_dataset():
+    token_error = check_transfer_token(request)
+    if token_error:
+        return token_error
+    filename = request.headers.get('X-Filename') or request.args.get('filename')
+    overwrite = request.args.get('overwrite', '0') in ('1', 'true', 'yes')
+    safe_rel, dest_path = safe_dataset_path(filename)
+    if not dest_path:
+        return jsonify({'success': False, 'error': '文件名无效或越界'}), 400
+    ensure_dataset_dir()
+    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+    if os.path.exists(dest_path) and not overwrite:
+        return jsonify({'success': False, 'error': '文件已存在，请开启覆盖后再试'}), 409
+
+    bytes_written = 0
+    try:
+        with open(dest_path, 'wb') as f:
+            for chunk in iter(lambda: request.stream.read(1024 * 1024), b''):
+                if not chunk:
+                    break
+                f.write(chunk)
+                bytes_written += len(chunk)
+        return jsonify({'success': True, 'saved_as': safe_rel, 'bytes': bytes_written})
+    except Exception as e:
+        print(f"接收数据集失败: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/download-weight')
 def download_weight():
     token_error = check_transfer_token(request)
@@ -991,6 +1128,120 @@ def pull_remote_weight():
         daemon=True
     ).start()
     return jsonify({'task_id': task_id})
+
+
+@app.route('/api/lora/start', methods=['POST'])
+def lora_start():
+    """在当前服务器启动LoRA训练（供远程调用）"""
+    token_error = check_transfer_token(request, allow_body=True)
+    if token_error:
+        return token_error
+    data = request.get_json(silent=True) or {}
+    dataset_name = data.get('dataset')
+    base_weight = data.get('base_weight')
+    params = data.get('params') or {}
+    callback_url = normalize_target_url(data.get('callback_url'))
+    callback_token = data.get('callback_token')
+
+    safe_dataset, dataset_path = safe_dataset_path(dataset_name)
+    safe_weight, weight_path = safe_out_path(base_weight)
+    if not dataset_path or not os.path.exists(dataset_path):
+        return jsonify({'error': '数据集不存在或无效'}), 400
+    if not weight_path or not os.path.exists(weight_path):
+        return jsonify({'error': '基座权重不存在或无效'}), 400
+
+    lora_name = params.get('lora_name') or 'remote_lora'
+    hidden_size = int(params.get('hidden_size') or 512)
+    # 结果文件名推测
+    result_file = os.path.join(OUT_DIR, 'lora', f"{lora_name}_{hidden_size}.pth")
+    os.makedirs(os.path.dirname(result_file), exist_ok=True)
+
+    # 构造训练参数
+    train_params = {
+        'train_type': 'lora',
+        'data_path': dataset_path,
+        'from_weight': params.get('from_weight') or derive_from_weight_prefix(safe_weight),
+        'lora_name': lora_name,
+        'save_dir': os.path.join(OUT_DIR, 'lora'),
+        'epochs': params.get('epochs') or 10,
+        'batch_size': params.get('batch_size') or 16,
+        'learning_rate': params.get('learning_rate') or 1e-4,
+        'hidden_size': hidden_size,
+        'num_hidden_layers': params.get('num_hidden_layers') or 8,
+        'max_seq_len': params.get('max_seq_len') or 512,
+        'use_moe': params.get('use_moe') or 0,
+        'log_interval': params.get('log_interval') or 10,
+        'save_interval': params.get('save_interval') or 1,
+        'from_resume': params.get('from_resume') or 0,
+        'train_monitor': 'none'
+    }
+
+    process_id = start_training_process('lora', train_params)
+    if not process_id:
+        return jsonify({'error': '无法启动LoRA训练'}), 500
+
+    task_id = create_lora_task({'callback': {'url': callback_url, 'token': callback_token}})
+    update_lora_task(task_id, status='running', message='LoRA训练中', process_id=process_id, result_file=os.path.relpath(result_file, OUT_DIR))
+    threading.Thread(
+        target=watch_lora_training,
+        args=(task_id, process_id, result_file, {'url': callback_url, 'token': callback_token}),
+        daemon=True
+    ).start()
+
+    return jsonify({
+        'task_id': task_id,
+        'process_id': process_id,
+        'result_file': os.path.relpath(result_file, OUT_DIR)
+    })
+
+
+@app.route('/api/lora/status/<task_id>')
+def lora_status(task_id):
+    token_error = check_transfer_token(request)
+    if token_error:
+        return token_error
+    task = get_lora_task(task_id)
+    if not task:
+        return jsonify({'error': '任务不存在'}), 404
+    return jsonify(task)
+
+
+@app.route('/api/lora/remote-start', methods=['POST'])
+def lora_remote_start():
+    data = request.get_json(silent=True) or {}
+    target_url = normalize_target_url(data.get('target_url'))
+    token = data.get('token')
+    payload = data.get('payload') or {}
+    if not target_url:
+        return jsonify({'error': '目标地址不能为空'}), 400
+    headers = {}
+    if token:
+        headers['X-Transfer-Token'] = token
+    try:
+        resp = requests.post(f"{target_url}/api/lora/start", json=payload, headers=headers, timeout=30)
+        return jsonify({'success': resp.status_code == 200, 'remote_response': resp.json() if resp.content else {}, 'status_code': resp.status_code})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 502
+
+
+@app.route('/api/lora/remote-status', methods=['POST'])
+def lora_remote_status():
+    data = request.get_json(silent=True) or {}
+    target_url = normalize_target_url(data.get('target_url'))
+    task_id = data.get('task_id')
+    token = data.get('token')
+    if not target_url or not task_id:
+        return jsonify({'error': '缺少目标地址或任务ID'}), 400
+    headers = {}
+    if token:
+        headers['X-Transfer-Token'] = token
+    try:
+        resp = requests.get(f"{target_url}/api/lora/status/{task_id}", headers=headers, timeout=15)
+        if resp.status_code != 200:
+            return jsonify({'success': False, 'status_code': resp.status_code, 'remote': target_url})
+        return jsonify({'success': True, 'data': resp.json()})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 502
 
 
 def upload_worker(task_id, target_url, safe_rel, file_path, token=None, overwrite=False):
@@ -1029,6 +1280,46 @@ def upload_worker(task_id, target_url, safe_rel, file_path, token=None, overwrit
             update_transfer_task(task_id, status='error', message=f"远程返回{resp.status_code}: {resp.text[:200]}")
             return
         update_transfer_task(task_id, status='success', progress=100, message='上传完成')
+    except Exception as e:
+        update_transfer_task(task_id, status='error', message=str(e))
+
+
+def upload_worker_dataset(task_id, target_url, safe_rel, file_path, token=None, overwrite=False):
+    update_transfer_task(task_id, status='running', progress=0, message='准备上传数据集')
+    try:
+        file_size = os.path.getsize(file_path)
+        headers = {
+            'Content-Type': 'application/octet-stream',
+            'X-Filename': os.path.basename(safe_rel)
+        }
+        if token:
+            headers['X-Transfer-Token'] = token
+        params = {'overwrite': '1' if overwrite else '0'}
+        bytes_sent = 0
+
+        def stream_file():
+            nonlocal bytes_sent
+            with open(file_path, 'rb') as f:
+                for chunk in iter(lambda: f.read(1024 * 1024), b''):
+                    bytes_sent += len(chunk)
+                    if file_size:
+                        progress = min(100, round(bytes_sent / file_size * 100, 2))
+                    else:
+                        progress = 100
+                    update_transfer_task(task_id, status='running', progress=progress, message='上传数据集...')
+                    yield chunk
+
+        resp = requests.post(
+            f"{target_url}/api/receive-dataset",
+            params=params,
+            data=stream_file(),
+            headers=headers,
+            timeout=600
+        )
+        if resp.status_code != 200:
+            update_transfer_task(task_id, status='error', message=f"远程返回{resp.status_code}: {resp.text[:200]}")
+            return
+        update_transfer_task(task_id, status='success', progress=100, message='数据集上传完成')
     except Exception as e:
         update_transfer_task(task_id, status='error', message=str(e))
 
@@ -1077,6 +1368,67 @@ def pull_worker(task_id, source_url, safe_rel, dest_path, token=None, overwrite=
             update_transfer_task(task_id, status='success', progress=100, message='下载完成')
     except Exception as e:
         update_transfer_task(task_id, status='error', message=str(e))
+
+
+def derive_from_weight_prefix(filename):
+    """根据文件名推测from_weight前缀"""
+    base = os.path.splitext(os.path.basename(filename))[0]
+    # 尝试去掉末尾的 _数字 或 _数字_moe
+    parts = base.split('_')
+    if len(parts) >= 2 and parts[-1].isdigit():
+        return '_'.join(parts[:-1])
+    if len(parts) >= 3 and parts[-2].isdigit() and parts[-1].lower() == 'moe':
+        return '_'.join(parts[:-2])
+    return base
+
+
+def push_weight_to_callback(callback_url, file_path, token=None):
+    if not callback_url:
+        return False, '无回传地址'
+    try:
+        headers = {
+            'Content-Type': 'application/octet-stream',
+            'X-Filename': os.path.basename(file_path)
+        }
+        if token:
+            headers['X-Transfer-Token'] = token
+        with open(file_path, 'rb') as f:
+            resp = requests.post(
+                f"{callback_url}/api/receive-weight",
+                params={'overwrite': '1'},
+                headers=headers,
+                data=iter(lambda: f.read(1024 * 1024), b''),
+                timeout=600
+            )
+        if resp.status_code == 200:
+            return True, '回传成功'
+        return False, f"回传失败: {resp.status_code}"
+    except Exception as e:
+        return False, str(e)
+
+
+def watch_lora_training(task_id, process_id, result_file, callback):
+    """监控LoRA任务，完成后可选回传"""
+    while True:
+        info = training_processes.get(process_id)
+        if not info:
+            update_lora_task(task_id, status='error', message='找不到训练进程')
+            return
+        if not info.get('running'):
+            if info.get('error'):
+                update_lora_task(task_id, status='error', message='训练失败')
+                return
+            # 检查结果文件
+            if not os.path.exists(result_file):
+                update_lora_task(task_id, status='error', message='训练完成但未找到权重文件')
+                return
+            update_lora_task(task_id, status='success', message='训练完成', result_file=os.path.relpath(result_file, OUT_DIR))
+            # 可选回传
+            if callback and callback.get('url'):
+                ok, msg = push_weight_to_callback(callback.get('url'), result_file, callback.get('token'))
+                update_lora_task(task_id, callback_result=msg, callback_success=ok)
+            return
+        time.sleep(3)
 
 @app.route('/logs/<process_id>')
 def logs(process_id):

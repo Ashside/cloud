@@ -77,6 +77,10 @@ export function getOutFiles() {
   return fetchWithTimeoutAndRetry('/api/out-files').then((r) => r.json());
 }
 
+export function getDatasetFiles() {
+  return fetchWithTimeoutAndRetry('/api/dataset-files').then((r) => r.json());
+}
+
 export function pingRemote(payload) {
   return fetchWithTimeoutAndRetry('/api/ping-remote', {
     method: 'POST',
@@ -101,6 +105,14 @@ export function uploadToRemote(payload) {
   }, 20000).then((r) => r.json());
 }
 
+export function uploadDatasetToRemote(payload) {
+  return fetchWithTimeoutAndRetry('/api/upload-dataset-to-remote', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }, 20000).then((r) => r.json());
+}
+
 export function pullRemoteWeight(payload) {
   return fetchWithTimeoutAndRetry('/api/pull-remote-weight', {
     method: 'POST',
@@ -111,4 +123,20 @@ export function pullRemoteWeight(payload) {
 
 export function getTransferStatus(taskId) {
   return fetchWithTimeoutAndRetry(`/api/transfer-status/${taskId}`).then((r) => r.json());
+}
+
+export function startRemoteLora(payload) {
+  return fetchWithTimeoutAndRetry('/api/lora/remote-start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }, 20000).then((r) => r.json());
+}
+
+export function remoteLoraStatus(payload) {
+  return fetchWithTimeoutAndRetry('/api/lora/remote-status', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }, 15000).then((r) => r.json());
 }
