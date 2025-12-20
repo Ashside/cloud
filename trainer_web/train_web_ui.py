@@ -19,6 +19,12 @@ import requests
 from werkzeug.utils import secure_filename
 from transformers import AutoTokenizer, AutoModelForCausalLM, TextStreamer
 
+# 确保可以导入项目内的model/trainer模块
+_SCRIPT_DIR_BOOT = os.path.dirname(os.path.abspath(__file__))
+_PARENT_DIR_BOOT = os.path.abspath(os.path.join(_SCRIPT_DIR_BOOT, '..'))
+if _PARENT_DIR_BOOT not in sys.path:
+    sys.path.insert(0, _PARENT_DIR_BOOT)
+
 # 复用eval逻辑
 from model.model_minimind import MiniMindConfig, MiniMindForCausalLM
 from model.model_lora import apply_lora, load_lora
