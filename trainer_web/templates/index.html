@@ -19,6 +19,7 @@
         <button class="tab active" onclick="openTab(event, 'train')">开始训练</button>
         <button class="tab" onclick="openTab(event, 'processes')">训练进程</button>
         <button class="tab" onclick="openTab(event, 'logfiles')">日志文件</button>
+        <button class="tab" onclick="openTab(event, 'transfer')">跨服传输</button>
     </div>
     
     <div id="train" class="tab-content">
@@ -316,6 +317,109 @@
         </div>
         <div id="logfiles-list">
             <!-- 日志文件列表将通过JavaScript动态加载 -->
+        </div>
+    </div>
+
+    <div id="transfer" class="tab-content hidden">
+        <div class="section-header">
+            <h2 class="section-title">跨服务器模型传输</h2>
+            <div class="section-actions">
+                <div class="tag">本地 out 路径：<code id="local-out-base">./out</code></div>
+            </div>
+        </div>
+        <div class="transfer-grid">
+            <div class="parameter-card">
+                <h3 class="card-title">发送到远程服务器</h3>
+                <p class="transfer-subtitle">A → B：仅可从本地 out 目录中选择权重文件并推送</p>
+                <div class="parameter-content transfer-content">
+                    <div class="form-group full-width">
+                        <label for="upload-remote-url">目标服务器URL</label>
+                        <input type="text" id="upload-remote-url" placeholder="http://serverB:12581">
+                    </div>
+                    <div class="form-group full-width">
+                        <label for="upload-token">鉴权令牌 (可选，需与对端 TRANSFER_TOKEN 一致)</label>
+                        <input type="text" id="upload-token" placeholder="可选token">
+                    </div>
+                    <div class="form-group">
+                        <label for="upload-file-select">选择 out 目录文件</label>
+                        <select id="upload-file-select">
+                            <option value="">加载中...</option>
+                        </select>
+                    </div>
+                    <div class="form-group inline-actions">
+                        <button type="button" class="btn-secondary" id="btn-refresh-out">刷新本地列表</button>
+                        <button type="button" class="btn-secondary" id="btn-ping-remote">Ping 远程</button>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="upload-overwrite">
+                        <label for="upload-overwrite">允许远端覆盖同名文件</label>
+                    </div>
+                    <div class="form-group full-width">
+                        <button type="button" class="btn-primary" id="btn-start-upload">
+                            <span class="btn-icon">📤</span>
+                            发送到远端
+                        </button>
+                    </div>
+                </div>
+                <div class="progress-container">
+                    <div class="progress-info">
+                        <span id="upload-status-text">等待任务</span>
+                        <span id="upload-progress-number">0%</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="upload-progress-fill" style="width: 0%;"></div>
+                    </div>
+                    <div class="progress-info">
+                        <span id="upload-detail-text" class="text-muted"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="parameter-card">
+                <h3 class="card-title">从远程接收/拉取</h3>
+                <p class="transfer-subtitle">B ← A：从远端 out 目录拉取到本地 out</p>
+                <div class="parameter-content transfer-content">
+                    <div class="form-group full-width">
+                        <label for="download-remote-url">来源服务器URL</label>
+                        <input type="text" id="download-remote-url" placeholder="http://serverA:12581">
+                    </div>
+                    <div class="form-group full-width">
+                        <label for="download-token">鉴权令牌 (可选)</label>
+                        <input type="text" id="download-token" placeholder="可选token">
+                    </div>
+                    <div class="form-group">
+                        <label for="download-file-select">远程 out 目录文件</label>
+                        <select id="download-file-select">
+                            <option value="">请先加载远程列表</option>
+                        </select>
+                    </div>
+                    <div class="form-group inline-actions">
+                        <button type="button" class="btn-secondary" id="btn-load-remote-list">加载远程列表</button>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="download-overwrite">
+                        <label for="download-overwrite">允许覆盖本地同名文件</label>
+                    </div>
+                    <div class="form-group full-width">
+                        <button type="button" class="btn-primary" id="btn-start-download">
+                            <span class="btn-icon">📥</span>
+                            下载到本地 out
+                        </button>
+                    </div>
+                </div>
+                <div class="progress-container">
+                    <div class="progress-info">
+                        <span id="download-status-text">等待任务</span>
+                        <span id="download-progress-number">0%</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="download-progress-fill" style="width: 0%;"></div>
+                    </div>
+                    <div class="progress-info">
+                        <span id="download-detail-text" class="text-muted"></span>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
     

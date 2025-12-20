@@ -7,12 +7,16 @@ import socket
 import atexit
 import signal
 import re
-from flask import Flask, render_template, request, jsonify, redirect, url_for
+import uuid
+import urllib.parse
+from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file
 from flask import g
 import time
 import psutil
 import glob
 import pathlib
+import requests
+from werkzeug.utils import secure_filename
 
 # 尝试导入torch来检测GPU
 try:
@@ -345,6 +349,101 @@ PROCESSES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'train
 
 # PID文件
 PID_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'train_web_ui.pid')
+
+# 项目与传输相关的路径/配置
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..'))
+OUT_DIR = os.path.abspath(os.path.join(PROJECT_ROOT, 'out'))
+TRANSFER_TOKEN = os.environ.get('TRANSFER_TOKEN')  # 可选：用于简单鉴权
+
+# 跨服务器传输任务状态
+transfer_tasks = {}
+transfer_lock = threading.Lock()
+
+
+def ensure_out_dir():
+    os.makedirs(OUT_DIR, exist_ok=True)
+    return OUT_DIR
+
+
+def normalize_target_url(raw_url):
+    """标准化目标URL，缺失协议时默认http"""
+    if not raw_url:
+        return None
+    if isinstance(raw_url, str):
+        raw_url = raw_url.strip()
+    if not raw_url:
+        return None
+    parsed = urllib.parse.urlparse(raw_url)
+    if not parsed.scheme:
+        raw_url = f"http://{raw_url}"
+        parsed = urllib.parse.urlparse(raw_url)
+    if not parsed.netloc:
+        return None
+    # 仅保留 scheme://netloc 以及 path（去掉末尾的斜杠）
+    normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip('/')
+    return normalized
+
+
+def safe_out_path(rel_path):
+    """将相对路径限制在out目录下，并返回(安全相对路径, 绝对路径)"""
+    if not rel_path:
+        return None, None
+    normalized = os.path.normpath(rel_path).replace('\\', '/')
+    normalized = normalized.lstrip('/')
+    if normalized.startswith('..'):
+        return None, None
+    parts = [secure_filename(p) for p in normalized.split('/') if p not in ('', '.')]
+    safe_rel = '/'.join([p for p in parts if p])
+    if not safe_rel:
+        return None, None
+    ensure_out_dir()
+    abs_path = os.path.abspath(os.path.join(OUT_DIR, *safe_rel.split('/')))
+    if not abs_path.startswith(OUT_DIR):
+        return None, None
+    return safe_rel, abs_path
+
+
+def check_transfer_token(req, allow_body=False):
+    """当设置了TRANSFER_TOKEN时，校验传输令牌"""
+    if not TRANSFER_TOKEN:
+        return None
+    provided = req.headers.get('X-Transfer-Token') or req.args.get('token')
+    if not provided and allow_body and req.is_json:
+        provided = (req.get_json(silent=True) or {}).get('token')
+    if provided != TRANSFER_TOKEN:
+        return jsonify({'error': '无效的传输令牌'}), 401
+    return None
+
+
+def create_transfer_task(task_type, filename, endpoint=None):
+    task_id = uuid.uuid4().hex
+    with transfer_lock:
+        transfer_tasks[task_id] = {
+            'id': task_id,
+            'type': task_type,
+            'filename': filename,
+            'endpoint': endpoint,
+            'status': 'pending',
+            'progress': 0,
+            'message': '待开始'
+        }
+        # 保留最近的任务，避免无限增长
+        if len(transfer_tasks) > 100:
+            for key in list(transfer_tasks.keys())[:-80]:
+                transfer_tasks.pop(key, None)
+    return task_id
+
+
+def update_transfer_task(task_id, **updates):
+    with transfer_lock:
+        if task_id in transfer_tasks:
+            transfer_tasks[task_id].update(updates)
+
+
+def get_transfer_task(task_id):
+    with transfer_lock:
+        return transfer_tasks.get(task_id)
 
 # Authentication removed - allow anonymous training
 
@@ -711,6 +810,267 @@ def quick_paths():
         
     except Exception as e:
         return jsonify({'error': f'获取快捷路径时出错: {str(e)}'})
+
+
+@app.route('/api/ping')
+def api_ping():
+    token_error = check_transfer_token(request)
+    if token_error:
+        return token_error
+    return jsonify({
+        'status': 'ok',
+        'server': socket.gethostname(),
+        'time': int(time.time())
+    })
+
+
+@app.route('/api/out-files')
+def list_out_files():
+    """列出out目录下可传输的文件"""
+    token_error = check_transfer_token(request)
+    if token_error:
+        return token_error
+    ensure_out_dir()
+    files = []
+    for root, _, filenames in os.walk(OUT_DIR):
+        for name in filenames:
+            file_path = os.path.join(root, name)
+            try:
+                stat = os.stat(file_path)
+                rel_path = os.path.relpath(file_path, OUT_DIR)
+                files.append({
+                    'name': rel_path,
+                    'size': stat.st_size,
+                    'modified': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat.st_mtime))
+                })
+            except OSError:
+                continue
+    files.sort(key=lambda x: x['name'])
+    return jsonify({'base': OUT_DIR, 'files': files})
+
+
+@app.route('/api/transfer-status/<task_id>')
+def transfer_status(task_id):
+    task = get_transfer_task(task_id)
+    if not task:
+        return jsonify({'error': '任务不存在'}), 404
+    return jsonify(task)
+
+
+@app.route('/api/ping-remote', methods=['POST'])
+def ping_remote():
+    data = request.get_json(silent=True) or {}
+    target_url = normalize_target_url(data.get('target_url'))
+    token = data.get('token')
+    if not target_url:
+        return jsonify({'error': '目标地址不能为空'}), 400
+    headers = {}
+    if token:
+        headers['X-Transfer-Token'] = token
+    start = time.time()
+    try:
+        resp = requests.get(f"{target_url}/api/ping", headers=headers, timeout=5)
+        latency = int((time.time() - start) * 1000)
+        if resp.status_code != 200:
+            return jsonify({'error': f'远程返回{resp.status_code}', 'latency_ms': latency}), 502
+        payload = {}
+        try:
+            payload = resp.json()
+        except Exception:
+            payload = {'raw': resp.text[:200]}
+        return jsonify({'success': True, 'latency_ms': latency, 'remote': target_url, 'data': payload})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 502
+
+
+@app.route('/api/remote-out-files', methods=['POST'])
+def remote_out_files():
+    data = request.get_json(silent=True) or {}
+    target_url = normalize_target_url(data.get('target_url'))
+    token = data.get('token')
+    if not target_url:
+        return jsonify({'error': '目标地址不能为空'}), 400
+    headers = {}
+    if token:
+        headers['X-Transfer-Token'] = token
+    try:
+        resp = requests.get(f"{target_url}/api/out-files", headers=headers, timeout=10)
+        if resp.status_code != 200:
+            return jsonify({'error': f'远程返回{resp.status_code}', 'remote': target_url}), 502
+        return jsonify({'success': True, 'remote': target_url, 'data': resp.json()})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 502
+
+
+@app.route('/api/upload-to-remote', methods=['POST'])
+def upload_to_remote():
+    data = request.get_json(silent=True) or {}
+    target_url = normalize_target_url(data.get('target_url'))
+    filename = data.get('filename')
+    token = data.get('token')
+    overwrite = str(data.get('overwrite', False)).lower() in ('1', 'true', 'yes', 'on')
+    if not target_url or not filename:
+        return jsonify({'error': '目标地址和文件名均不能为空'}), 400
+    safe_rel, file_path = safe_out_path(filename)
+    if not file_path or not os.path.exists(file_path):
+        return jsonify({'error': '请选择out目录下存在的文件'}), 400
+
+    task_id = create_transfer_task('upload', safe_rel, target_url)
+    threading.Thread(
+        target=upload_worker,
+        args=(task_id, target_url, safe_rel, file_path, token, overwrite),
+        daemon=True
+    ).start()
+    return jsonify({'task_id': task_id})
+
+
+@app.route('/api/receive-weight', methods=['POST'])
+def receive_weight():
+    token_error = check_transfer_token(request)
+    if token_error:
+        return token_error
+    filename = request.headers.get('X-Filename') or request.args.get('filename')
+    overwrite = request.args.get('overwrite', '0') in ('1', 'true', 'yes')
+    safe_rel, dest_path = safe_out_path(filename)
+    if not dest_path:
+        return jsonify({'success': False, 'error': '文件名无效或越界'}), 400
+    ensure_out_dir()
+    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+    if os.path.exists(dest_path) and not overwrite:
+        return jsonify({'success': False, 'error': '文件已存在，请开启覆盖后再试'}), 409
+
+    bytes_written = 0
+    try:
+        with open(dest_path, 'wb') as f:
+            for chunk in iter(lambda: request.stream.read(1024 * 1024), b''):
+                if not chunk:
+                    break
+                f.write(chunk)
+                bytes_written += len(chunk)
+        return jsonify({'success': True, 'saved_as': safe_rel, 'bytes': bytes_written})
+    except Exception as e:
+        print(f"接收文件失败: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/download-weight')
+def download_weight():
+    token_error = check_transfer_token(request)
+    if token_error:
+        return token_error
+    filename = request.args.get('filename')
+    safe_rel, file_path = safe_out_path(filename)
+    if not file_path or not os.path.exists(file_path):
+        return jsonify({'error': '文件不存在'}), 404
+    return send_file(file_path, as_attachment=True, download_name=os.path.basename(file_path))
+
+
+@app.route('/api/pull-remote-weight', methods=['POST'])
+def pull_remote_weight():
+    data = request.get_json(silent=True) or {}
+    source_url = normalize_target_url(data.get('source_url'))
+    filename = data.get('filename')
+    token = data.get('token')
+    overwrite = str(data.get('overwrite', False)).lower() in ('1', 'true', 'yes', 'on')
+    if not source_url or not filename:
+        return jsonify({'error': '来源地址和文件名均不能为空'}), 400
+    safe_rel, dest_path = safe_out_path(filename)
+    if not dest_path:
+        return jsonify({'error': '无效的文件名'}), 400
+
+    task_id = create_transfer_task('download', safe_rel, source_url)
+    threading.Thread(
+        target=pull_worker,
+        args=(task_id, source_url, safe_rel, dest_path, token, overwrite),
+        daemon=True
+    ).start()
+    return jsonify({'task_id': task_id})
+
+
+def upload_worker(task_id, target_url, safe_rel, file_path, token=None, overwrite=False):
+    update_transfer_task(task_id, status='running', progress=0, message='准备上传')
+    try:
+        file_size = os.path.getsize(file_path)
+        headers = {
+            'Content-Type': 'application/octet-stream',
+            'X-Filename': os.path.basename(safe_rel)
+        }
+        if token:
+            headers['X-Transfer-Token'] = token
+        params = {'overwrite': '1' if overwrite else '0'}
+        bytes_sent = 0
+
+        def stream_file():
+            nonlocal bytes_sent
+            with open(file_path, 'rb') as f:
+                for chunk in iter(lambda: f.read(1024 * 1024), b''):
+                    bytes_sent += len(chunk)
+                    if file_size:
+                        progress = min(100, round(bytes_sent / file_size * 100, 2))
+                    else:
+                        progress = 100
+                    update_transfer_task(task_id, status='running', progress=progress, message='上传中...')
+                    yield chunk
+
+        resp = requests.post(
+            f"{target_url}/api/receive-weight",
+            params=params,
+            data=stream_file(),
+            headers=headers,
+            timeout=600
+        )
+        if resp.status_code != 200:
+            update_transfer_task(task_id, status='error', message=f"远程返回{resp.status_code}: {resp.text[:200]}")
+            return
+        update_transfer_task(task_id, status='success', progress=100, message='上传完成')
+    except Exception as e:
+        update_transfer_task(task_id, status='error', message=str(e))
+
+
+def pull_worker(task_id, source_url, safe_rel, dest_path, token=None, overwrite=False):
+    update_transfer_task(task_id, status='running', progress=0, message='准备下载')
+    ensure_out_dir()
+    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+    if os.path.exists(dest_path) and not overwrite:
+        update_transfer_task(task_id, status='error', message='文件已存在且未开启覆盖')
+        return
+    headers = {}
+    if token:
+        headers['X-Transfer-Token'] = token
+    params = {'filename': safe_rel}
+    try:
+        with requests.get(
+            f"{source_url}/api/download-weight",
+            headers=headers,
+            params=params,
+            stream=True,
+            timeout=600
+        ) as resp:
+            if resp.status_code != 200:
+                try:
+                    detail = resp.json()
+                except Exception:
+                    detail = {'raw': resp.text[:200]}
+                update_transfer_task(task_id, status='error', message=f"远程返回{resp.status_code}: {detail}")
+                return
+            total_size = int(resp.headers.get('Content-Length', 0)) if resp.headers.get('Content-Length') else 0
+            bytes_written = 0
+            with open(dest_path, 'wb') as f:
+                for chunk in resp.iter_content(chunk_size=1024 * 1024):
+                    if not chunk:
+                        continue
+                    f.write(chunk)
+                    bytes_written += len(chunk)
+                    if total_size:
+                        progress = min(100, round(bytes_written / total_size * 100, 2))
+                    else:
+                        # 当无法获取总大小时，用写入量的近似值驱动进度，但保留到99%
+                        current = get_transfer_task(task_id) or {}
+                        progress = min(99, current.get('progress', 0) + 1)
+                    update_transfer_task(task_id, status='running', progress=progress, message='下载中...')
+            update_transfer_task(task_id, status='success', progress=100, message='下载完成')
+    except Exception as e:
+        update_transfer_task(task_id, status='error', message=str(e))
 
 @app.route('/logs/<process_id>')
 def logs(process_id):

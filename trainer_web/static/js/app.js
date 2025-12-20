@@ -3,6 +3,7 @@ import { initTrainForm } from './train/form.js';
 import { startProcessPolling, stopProcessPolling, loadProcesses } from './processes/list.js';
 import { loadLogFiles } from './logfiles/list.js';
 import { refreshLog } from './processes/logs.js';
+import { initTransfer, onEnterTransfer } from './transfer/index.js';
 
 const hooks = {
   onEnterProcesses: () => {
@@ -16,6 +17,9 @@ const hooks = {
   },
   onEnterLogfiles: () => {
     loadLogFiles();
+  },
+  onEnterTransfer: () => {
+    onEnterTransfer();
   },
 };
 
@@ -358,5 +362,5 @@ window.addEventListener('load', () => {
   // 不再立即开始轮询，而是等待用户切换到进程标签页
   // startProcessPolling(); // 移动到钩子函数中
   loadProcesses(); // 仍然加载初始进程数据
+  initTransfer();
 });
-

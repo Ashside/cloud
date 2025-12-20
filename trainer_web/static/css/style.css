@@ -347,6 +347,45 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     margin-top: 0.5rem;
 }
 
+.transfer-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+    gap: 1.25rem;
+}
+
+.transfer-subtitle {
+    margin: 0 0 0.5rem 0;
+    color: var(--text-secondary);
+}
+
+.transfer-content {
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.form-group.full-width {
+    grid-column: 1 / -1;
+}
+
+.form-group.inline-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-end;
+    grid-column: 1 / -1;
+}
+
+.tag {
+    padding: 0.4rem 0.8rem;
+    background: rgba(139, 92, 246, 0.15);
+    border: 1px solid rgba(139, 92, 246, 0.3);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: 0.8rem;
+}
+
+.text-muted {
+    color: var(--text-secondary);
+}
+
 .metric-item {
     display: flex;
     align-items: center;

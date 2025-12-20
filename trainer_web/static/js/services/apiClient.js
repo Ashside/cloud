@@ -73,3 +73,42 @@ export function deleteLogFile(filename) {
   }).then((r) => r.json());
 }
 
+export function getOutFiles() {
+  return fetchWithTimeoutAndRetry('/api/out-files').then((r) => r.json());
+}
+
+export function pingRemote(payload) {
+  return fetchWithTimeoutAndRetry('/api/ping-remote', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then((r) => r.json());
+}
+
+export function getRemoteOutFiles(payload) {
+  return fetchWithTimeoutAndRetry('/api/remote-out-files', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then((r) => r.json());
+}
+
+export function uploadToRemote(payload) {
+  return fetchWithTimeoutAndRetry('/api/upload-to-remote', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }, 20000).then((r) => r.json());
+}
+
+export function pullRemoteWeight(payload) {
+  return fetchWithTimeoutAndRetry('/api/pull-remote-weight', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }, 20000).then((r) => r.json());
+}
+
+export function getTransferStatus(taskId) {
+  return fetchWithTimeoutAndRetry(`/api/transfer-status/${taskId}`).then((r) => r.json());
+}

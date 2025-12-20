@@ -11,5 +11,5 @@ export function openTab(evt, tabName, hooks = {}) {
   if (tabName !== 'processes' && hooks.onLeaveProcesses) hooks.onLeaveProcesses();
   if (tabName === 'processes' && hooks.onEnterProcesses) hooks.onEnterProcesses();
   if (tabName === 'logfiles' && hooks.onEnterLogfiles) hooks.onEnterLogfiles();
+  if (tabName === 'transfer' && hooks.onEnterTransfer) hooks.onEnterTransfer();
 }
-
